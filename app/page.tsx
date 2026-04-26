@@ -6,8 +6,14 @@ export const dynamic = "force-dynamic";
 type ColKey = "todo" | "inprogress" | "inreview" | "done";
 
 export default async function Page() {
-  const { allProjects, allTasks, allDocs, allActivities, allPrompts } =
-    await loadAllData();
+  const {
+    allProjects,
+    allTasks,
+    allDocs,
+    allActivities,
+    allPrompts,
+    appSettings,
+  } = await loadAllData();
 
   // Group children by project for the client component
   const initialProjects = allProjects.map((p) => {
@@ -61,10 +67,21 @@ export default async function Page() {
     }),
   }));
 
+  const initialSettings = {
+    displayName: appSettings.displayName,
+    planLabel: appSettings.planLabel,
+    theme: appSettings.theme,
+    accentColor: appSettings.accentColor,
+    defaultPriority: appSettings.defaultPriority,
+    defaultColumn: appSettings.defaultColumn,
+    density: appSettings.density,
+  };
+
   return (
     <TaskManager
       initialProjects={initialProjects}
       initialPrompts={initialPrompts}
+      initialSettings={initialSettings}
     />
   );
 }

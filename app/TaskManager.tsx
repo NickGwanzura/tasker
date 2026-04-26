@@ -17,8 +17,11 @@ import {
   addTaskAction,
   createProjectAction,
   deleteDocAction,
+  exportAllDataAction,
   newDocAction,
   updateDocAction,
+  updateSettingsAction,
+  wipeAllDataAction,
 } from "./actions";
 
 // ---------- Types ----------
@@ -66,6 +69,16 @@ interface Prompt {
   date: string;
 }
 
+interface AppSettings {
+  displayName: string;
+  planLabel: string;
+  theme: string;
+  accentColor: string;
+  defaultPriority: string;
+  defaultColumn: string;
+  density: string;
+}
+
 type PageKey =
   | "tasks"
   | "docs"
@@ -73,7 +86,8 @@ type PageKey =
   | "prompts"
   | "security-overview"
   | "calendar"
-  | "automations";
+  | "automations"
+  | "settings";
 
 // ---------- Constants ----------
 const SC: Record<ColKey, string> = {
@@ -142,7 +156,42 @@ const PT: Record<PageKey, string> = {
   "security-overview": "Security",
   calendar: "Calendar",
   automations: "Automations",
+  settings: "Settings",
 };
+
+function deriveInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "U";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+// Lighten/darken a hex color toward black or white for hover state
+function shadeColor(hex: string, percent: number): string {
+  const f = hex.replace("#", "");
+  const num = parseInt(f, 16);
+  const r = (num >> 16) & 0xff;
+  const g = (num >> 8) & 0xff;
+  const b = num & 0xff;
+  const t = percent < 0 ? 0 : 255;
+  const p = Math.abs(percent) / 100;
+  const nr = Math.round((t - r) * p) + r;
+  const ng = Math.round((t - g) * p) + g;
+  const nb = Math.round((t - b) * p) + b;
+  return (
+    "#" +
+    [nr, ng, nb]
+      .map((x) => Math.max(0, Math.min(255, x)).toString(16).padStart(2, "0"))
+      .join("")
+  );
+}
+
+// Convert hex → rgba with alpha (used for accent backgrounds)
+function hexToRgba(hex: string, alpha: number): string {
+  const f = hex.replace("#", "");
+  const num = parseInt(f, 16);
+  return `rgba(${(num >> 16) & 0xff}, ${(num >> 8) & 0xff}, ${num & 0xff}, ${alpha})`;
+}
 
 // ---------- Utils ----------
 function esc(s: string): string {
@@ -177,11 +226,13 @@ function mdToHtml(md: string): string {
 interface TaskManagerProps {
   initialProjects: Project[];
   initialPrompts: Prompt[];
+  initialSettings: AppSettings;
 }
 
 export default function TaskManager({
   initialProjects,
   initialPrompts,
+  initialSettings,
 }: TaskManagerProps) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -199,6 +250,7 @@ export default function TaskManager({
   const [docEditMode, setDocEditMode] = useState(true);
   const [prompts, setPrompts] = useState<Prompt[]>(initialPrompts);
   const [activeCat, setActiveCat] = useState<string>("all");
+  const [appSettings, setAppSettings] = useState<AppSettings>(initialSettings);
   const [page, setPage] = useState<PageKey>("tasks");
   const [tabActive, setTabActive] = useState<string>("Board");
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -275,6 +327,20 @@ export default function TaskManager({
   useEffect(() => {
     setPrompts(initialPrompts);
   }, [initialPrompts]);
+  useEffect(() => {
+    setAppSettings(initialSettings);
+  }, [initialSettings]);
+
+  // Apply theme + accent CSS variables to <html> root whenever settings change
+  useEffect(() => {
+    const root = document.documentElement;
+    root.setAttribute("data-theme", appSettings.theme);
+    root.setAttribute("data-density", appSettings.density);
+    const accent = appSettings.accentColor || "#3b5bdb";
+    root.style.setProperty("--accent", accent);
+    root.style.setProperty("--ad", shadeColor(accent, -15));
+    root.style.setProperty("--al", hexToRgba(accent, 0.1));
+  }, [appSettings.theme, appSettings.accentColor, appSettings.density]);
 
   // ---------- Project ops ----------
   const createProject = useCallback(() => {
@@ -303,12 +369,25 @@ export default function TaskManager({
   }, []);
 
   // ---------- Task ops ----------
+  const openNewTaskModal = useCallback(() => {
+    setTaskForm((f) => ({
+      ...f,
+      priority: appSettings.defaultPriority as Priority,
+      col: appSettings.defaultColumn as ColKey,
+    }));
+    openModal("mTask");
+  }, [appSettings.defaultPriority, appSettings.defaultColumn, openModal]);
+
   const quickAdd = useCallback(
     (c: ColKey) => {
-      setTaskForm((f) => ({ ...f, col: c }));
+      setTaskForm((f) => ({
+        ...f,
+        col: c,
+        priority: appSettings.defaultPriority as Priority,
+      }));
       openModal("mTask");
     },
-    [openModal]
+    [appSettings.defaultPriority, openModal]
   );
 
   const addTask = useCallback(() => {
@@ -543,10 +622,10 @@ export default function TaskManager({
       {/* SIDEBAR */}
       <aside className={"sidebar" + (sidebarOpen ? " open" : "")}>
         <div className="s-user">
-          <div className="av">NG</div>
+          <div className="av">{deriveInitials(appSettings.displayName)}</div>
           <div>
-            <div className="s-name">Nicholas Gwanzura</div>
-            <div className="s-plan">Pro plan</div>
+            <div className="s-name">{appSettings.displayName}</div>
+            <div className="s-plan">{appSettings.planLabel}</div>
           </div>
           <button className="s-close" onClick={closeSidebar}>
             ✕
@@ -670,7 +749,10 @@ export default function TaskManager({
 
         <div className="s-sec" style={{ paddingBottom: 16 }}>
           <div className="s-lbl">Apps</div>
-          <div className="ni">
+          <div
+            className={"ni" + (page === "settings" ? " active" : "")}
+            onClick={() => navTo("settings")}
+          >
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="3" />
               <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
@@ -707,6 +789,7 @@ export default function TaskManager({
           <TopbarButtons
             page={page}
             openModal={openModal}
+            openNewTask={openNewTaskModal}
             newDoc={newDoc}
           />
         </div>
@@ -818,6 +901,20 @@ export default function TaskManager({
             <div className="sec-tit">Automations</div>
             <div className="sec-sub">Workflow automation coming soon.</div>
           </div>
+        </div>
+
+        <div className={"page" + (page === "settings" ? " active" : "")}>
+          <SettingsView
+            settings={appSettings}
+            onChange={(patch) => {
+              setAppSettings((s) => ({ ...s, ...patch }));
+              startTransition(async () => {
+                await updateSettingsAction(patch);
+              });
+            }}
+            showToast={showToast}
+            router={router}
+          />
         </div>
       </div>
 
@@ -1091,16 +1188,18 @@ export default function TaskManager({
 function TopbarButtons({
   page,
   openModal,
+  openNewTask,
   newDoc,
 }: {
   page: PageKey;
   openModal: (id: string) => void;
+  openNewTask: () => void;
   newDoc: () => void;
 }) {
   if (page === "tasks") {
     return (
       <>
-        <button className="btn bg" onClick={() => openModal("mTask")}>
+        <button className="btn bg" onClick={openNewTask}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
             <line x1="12" y1="5" x2="12" y2="19" />
             <line x1="5" y1="12" x2="19" y2="12" />
@@ -1926,6 +2025,318 @@ function Modal({
       }}
     >
       <div className="modal">{children}</div>
+    </div>
+  );
+}
+
+function SettingsView({
+  settings,
+  onChange,
+  showToast,
+  router,
+}: {
+  settings: AppSettings;
+  onChange: (patch: Partial<AppSettings>) => void;
+  showToast: (msg: string) => void;
+  router: ReturnType<typeof useRouter>;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const exportJson = useCallback(async () => {
+    setBusy(true);
+    try {
+      const data = await exportAllDataAction();
+      const blob = new Blob([JSON.stringify(data, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `helio-export-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      showToast("Exported");
+    } catch (e) {
+      showToast("Export failed");
+    } finally {
+      setBusy(false);
+    }
+  }, [showToast]);
+
+  const wipe = useCallback(async () => {
+    setBusy(true);
+    try {
+      await wipeAllDataAction();
+      setConfirming(false);
+      showToast("All data wiped");
+      router.refresh();
+    } finally {
+      setBusy(false);
+    }
+  }, [showToast, router]);
+
+  return (
+    <div className="reports-wrap">
+      <div className="report-header">
+        <div className="report-title">⚙️ Settings</div>
+      </div>
+
+      <div className="report-section">
+        <div className="rs-title">
+          Profile<span>Display info</span>
+        </div>
+        <div className="settings-grid">
+          <div className="fg">
+            <label className="fl">Display Name</label>
+            <input
+              type="text"
+              className="fi"
+              value={settings.displayName}
+              onChange={(e) => onChange({ displayName: e.target.value })}
+              placeholder="Your name"
+            />
+          </div>
+          <div className="fg">
+            <label className="fl">Plan Label</label>
+            <input
+              type="text"
+              className="fi"
+              value={settings.planLabel}
+              onChange={(e) => onChange({ planLabel: e.target.value })}
+              placeholder="e.g. Pro plan"
+            />
+          </div>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            marginTop: 8,
+          }}
+        >
+          <div
+            className="av"
+            style={{ width: 44, height: 44, fontSize: 14, borderRadius: 11 }}
+          >
+            {deriveInitials(settings.displayName)}
+          </div>
+          <div>
+            <div className="s-name" style={{ fontSize: 14 }}>
+              {settings.displayName || "—"}
+            </div>
+            <div className="s-plan">{settings.planLabel}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="report-section">
+        <div className="rs-title">
+          Appearance<span>Theme &amp; accent</span>
+        </div>
+        <div className="fg">
+          <label className="fl">Theme</label>
+          <div className="theme-toggle">
+            {(["light", "dark"] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                className={
+                  "theme-btn" + (settings.theme === t ? " selected" : "")
+                }
+                onClick={() => onChange({ theme: t })}
+              >
+                <span className="theme-swatch" data-theme={t} />
+                <span style={{ textTransform: "capitalize" }}>{t}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="fg">
+          <label className="fl">Accent Color</label>
+          <div className="color-picker">
+            {[
+              "#3b5bdb",
+              "#0ca678",
+              "#e67700",
+              "#6741d9",
+              "#e03131",
+              "#e8590c",
+              "#be185d",
+              "#0f766e",
+            ].map((c) => (
+              <div
+                key={c}
+                className={
+                  "color-swatch" +
+                  (settings.accentColor === c ? " selected" : "")
+                }
+                style={{ background: c }}
+                onClick={() => onChange({ accentColor: c })}
+              />
+            ))}
+          </div>
+        </div>
+        <div className="fg">
+          <label className="fl">Density</label>
+          <div className="theme-toggle">
+            {(["comfortable", "compact"] as const).map((d) => (
+              <button
+                key={d}
+                type="button"
+                className={
+                  "theme-btn" + (settings.density === d ? " selected" : "")
+                }
+                onClick={() => onChange({ density: d })}
+              >
+                <span style={{ textTransform: "capitalize" }}>{d}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="report-section">
+        <div className="rs-title">
+          Defaults<span>For new tasks</span>
+        </div>
+        <div className="settings-grid">
+          <div className="fg">
+            <label className="fl">Default Priority</label>
+            <select
+              className="fs"
+              value={settings.defaultPriority}
+              onChange={(e) => onChange({ defaultPriority: e.target.value })}
+            >
+              <option value="High">High</option>
+              <option value="Medium">Medium</option>
+              <option value="Low">Low</option>
+            </select>
+          </div>
+          <div className="fg">
+            <label className="fl">Default Column</label>
+            <select
+              className="fs"
+              value={settings.defaultColumn}
+              onChange={(e) => onChange({ defaultColumn: e.target.value })}
+            >
+              <option value="todo">To Do</option>
+              <option value="inprogress">In Progress</option>
+              <option value="inreview">In Review</option>
+              <option value="done">Done</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div className="report-section">
+        <div className="rs-title">
+          Data<span>Export &amp; reset</span>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button className="btn bg" disabled={busy} onClick={exportJson}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M12 3v12" />
+              <path d="m6 9 6 6 6-6" />
+              <path d="M5 21h14" />
+            </svg>
+            <span>Export JSON</span>
+          </button>
+        </div>
+
+        <div
+          style={{
+            marginTop: 18,
+            paddingTop: 14,
+            borderTop: "1px solid var(--border)",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 12,
+              fontWeight: 700,
+              color: "var(--red)",
+              textTransform: "uppercase",
+              letterSpacing: ".06em",
+              marginBottom: 6,
+            }}
+          >
+            Danger Zone
+          </div>
+          <div
+            style={{
+              fontSize: "12.5px",
+              color: "var(--muted)",
+              marginBottom: 10,
+              lineHeight: 1.5,
+            }}
+          >
+            Wipe all projects, tasks, doc pages, activities, and prompts. This
+            cannot be undone.
+          </div>
+          {!confirming ? (
+            <button
+              className="btn"
+              style={{
+                background: "var(--rl)",
+                color: "var(--red)",
+                border: "1px solid var(--red)",
+              }}
+              onClick={() => setConfirming(true)}
+            >
+              Wipe all data
+            </button>
+          ) : (
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                className="btn"
+                style={{
+                  background: "var(--red)",
+                  color: "#fff",
+                }}
+                disabled={busy}
+                onClick={wipe}
+              >
+                Confirm wipe
+              </button>
+              <button
+                className="btn bg"
+                disabled={busy}
+                onClick={() => setConfirming(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="report-section" style={{ opacity: 0.85 }}>
+        <div className="rs-title">
+          About<span>Build info</span>
+        </div>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "max-content 1fr",
+            gap: "6px 16px",
+            fontSize: "12.5px",
+            color: "var(--muted)",
+          }}
+        >
+          <div>App</div>
+          <div style={{ color: "var(--text)" }}>Helio Task System</div>
+          <div>Stack</div>
+          <div style={{ color: "var(--text)" }}>
+            Next.js · Drizzle · Neon Postgres
+          </div>
+          <div>Schema</div>
+          <div style={{ color: "var(--text)" }}>tasker.*</div>
+        </div>
+      </div>
     </div>
   );
 }

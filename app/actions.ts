@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { eq, desc, asc } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 
-const { projects, tasks, docPages, activities, prompts } = schema;
+const { projects, tasks, docPages, activities, prompts, settings } = schema;
+const SETTINGS_ID = "default";
 
 type ColKey = "todo" | "inprogress" | "inreview" | "done";
 
@@ -117,15 +118,87 @@ export async function addPromptAction(input: {
 
 // ---------- Loaders ----------
 export async function loadAllData() {
-  const [allProjects, allTasks, allDocs, allActivities, allPrompts] =
+  const [allProjects, allTasks, allDocs, allActivities, allPrompts, settingsRow] =
     await Promise.all([
       db.select().from(projects).orderBy(asc(projects.createdAt)),
       db.select().from(tasks).orderBy(asc(tasks.position), asc(tasks.id)),
       db.select().from(docPages).orderBy(asc(docPages.createdAt)),
       db.select().from(activities).orderBy(desc(activities.createdAt)),
       db.select().from(prompts).orderBy(desc(prompts.createdAt)),
+      db.select().from(settings).where(eq(settings.id, SETTINGS_ID)).limit(1),
     ]);
-  return { allProjects, allTasks, allDocs, allActivities, allPrompts };
+  let appSettings = settingsRow[0];
+  if (!appSettings) {
+    const inserted = await db
+      .insert(settings)
+      .values({ id: SETTINGS_ID })
+      .returning();
+    appSettings = inserted[0];
+  }
+  return {
+    allProjects,
+    allTasks,
+    allDocs,
+    allActivities,
+    allPrompts,
+    appSettings,
+  };
+}
+
+// ---------- Settings ----------
+export async function updateSettingsAction(input: {
+  displayName?: string;
+  planLabel?: string;
+  theme?: string;
+  accentColor?: string;
+  defaultPriority?: string;
+  defaultColumn?: string;
+  density?: string;
+}) {
+  const patch: Record<string, unknown> = { updatedAt: new Date() };
+  if (input.displayName !== undefined) patch.displayName = input.displayName;
+  if (input.planLabel !== undefined) patch.planLabel = input.planLabel;
+  if (input.theme !== undefined) patch.theme = input.theme;
+  if (input.accentColor !== undefined) patch.accentColor = input.accentColor;
+  if (input.defaultPriority !== undefined)
+    patch.defaultPriority = input.defaultPriority;
+  if (input.defaultColumn !== undefined) patch.defaultColumn = input.defaultColumn;
+  if (input.density !== undefined) patch.density = input.density;
+  await db.update(settings).set(patch).where(eq(settings.id, SETTINGS_ID));
+  revalidatePath("/");
+}
+
+// ---------- Data ops ----------
+export async function exportAllDataAction() {
+  const [allProjects, allTasks, allDocs, allActivities, allPrompts, settingsRow] =
+    await Promise.all([
+      db.select().from(projects),
+      db.select().from(tasks),
+      db.select().from(docPages),
+      db.select().from(activities),
+      db.select().from(prompts),
+      db.select().from(settings).where(eq(settings.id, SETTINGS_ID)).limit(1),
+    ]);
+  return {
+    exportedAt: new Date().toISOString(),
+    version: 1,
+    projects: allProjects,
+    tasks: allTasks,
+    docPages: allDocs,
+    activities: allActivities,
+    prompts: allPrompts,
+    settings: settingsRow[0] ?? null,
+  };
+}
+
+export async function wipeAllDataAction() {
+  // Cascade FKs handle children, but be explicit for safety + activities/prompts cleanup
+  await db.delete(activities);
+  await db.delete(tasks);
+  await db.delete(docPages);
+  await db.delete(projects);
+  await db.delete(prompts);
+  revalidatePath("/");
 }
 
 function escapeHtml(s: string): string {

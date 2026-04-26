@@ -64,6 +64,18 @@ export const prompts = taskerSchema.table("prompts", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const settings = taskerSchema.table("settings", {
+  id: varchar("id", { length: 16 }).primaryKey(),
+  displayName: text("display_name").notNull().default("Nicholas Gwanzura"),
+  planLabel: text("plan_label").notNull().default("Pro plan"),
+  theme: varchar("theme", { length: 16 }).notNull().default("light"),
+  accentColor: varchar("accent_color", { length: 16 }).notNull().default("#3b5bdb"),
+  defaultPriority: varchar("default_priority", { length: 16 }).notNull().default("Medium"),
+  defaultColumn: varchar("default_column", { length: 32 }).notNull().default("todo"),
+  density: varchar("density", { length: 16 }).notNull().default("comfortable"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
 export type Task = typeof tasks.$inferSelect;
@@ -74,3 +86,5 @@ export type Activity = typeof activities.$inferSelect;
 export type NewActivity = typeof activities.$inferInsert;
 export type Prompt = typeof prompts.$inferSelect;
 export type NewPrompt = typeof prompts.$inferInsert;
+export type Settings = typeof settings.$inferSelect;
+export type NewSettings = typeof settings.$inferInsert;
