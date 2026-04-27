@@ -67,6 +67,44 @@ export async function addTaskAction(input: {
   revalidatePath("/");
 }
 
+export async function updateTaskAction(input: {
+  id: number;
+  title?: string;
+  description?: string;
+  priority?: string;
+  column?: ColKey;
+  tags?: string[];
+  dueDate?: string;
+}) {
+  const patch: Record<string, unknown> = {};
+  if (input.title !== undefined) patch.title = input.title;
+  if (input.description !== undefined) patch.description = input.description;
+  if (input.priority !== undefined) patch.priority = input.priority;
+  if (input.column !== undefined) patch.column = input.column;
+  if (input.tags !== undefined) patch.tags = input.tags;
+  if (input.dueDate !== undefined) patch.dueDate = input.dueDate || "No date";
+  if (Object.keys(patch).length === 0) return;
+  await db.update(tasks).set(patch).where(eq(tasks.id, input.id));
+  revalidatePath("/");
+}
+
+export async function deleteTaskAction(input: { id: number }) {
+  const row = await db
+    .select({ projectId: tasks.projectId, title: tasks.title })
+    .from(tasks)
+    .where(eq(tasks.id, input.id))
+    .limit(1);
+  await db.delete(tasks).where(eq(tasks.id, input.id));
+  if (row[0]) {
+    await db.insert(activities).values({
+      projectId: row[0].projectId,
+      icon: "🗑️",
+      text: `Task <b>${escapeHtml(row[0].title)}</b> deleted`,
+    });
+  }
+  revalidatePath("/");
+}
+
 // ---------- Doc pages ----------
 export async function newDocAction(input: { projectId: string }) {
   const id = "d" + Date.now();

@@ -17,10 +17,12 @@ import {
   addTaskAction,
   createProjectAction,
   deleteDocAction,
+  deleteTaskAction,
   exportAllDataAction,
   newDocAction,
   updateDocAction,
   updateSettingsAction,
+  updateTaskAction,
   wipeAllDataAction,
 } from "./actions";
 
@@ -222,6 +224,52 @@ function mdToHtml(md: string): string {
   return "<p>" + h + "</p>";
 }
 
+// ---------- Date helpers ----------
+function parseTaskDate(s: string): Date | null {
+  if (!s || s === "No date") return null;
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) {
+    const d = new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  let d = new Date(s);
+  if (isNaN(d.getTime())) {
+    d = new Date(`${s}, ${new Date().getFullYear()}`);
+  }
+  if (isNaN(d.getTime())) return null;
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function isoKey(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function buildMonthGrid(cursor: Date): Date[] {
+  const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+  const start = new Date(first);
+  start.setDate(first.getDate() - first.getDay());
+  const days: Date[] = [];
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    days.push(d);
+  }
+  return days;
+}
+
+function prettyDay(key: string): string {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 // ---------- Component ----------
 interface TaskManagerProps {
   initialProjects: Project[];
@@ -288,6 +336,16 @@ export default function TaskManager({
     category: "Development",
     text: "",
   });
+  const [editingTask, setEditingTask] = useState<{
+    id: number;
+    projectId: string;
+    title: string;
+    desc: string;
+    priority: Priority;
+    col: ColKey;
+    tags: string;
+    date: string;
+  } | null>(null);
 
   const docTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const docTitleInputRef = useRef<HTMLInputElement | null>(null);
@@ -366,6 +424,9 @@ export default function TaskManager({
 
   const switchProj = useCallback((id: string) => {
     setActiveProjId(id);
+    setPage("tasks");
+    setTabActive("Board");
+    setSidebarOpen(false);
   }, []);
 
   // ---------- Task ops ----------
@@ -429,6 +490,66 @@ export default function TaskManager({
       router.refresh();
     });
   }, [taskForm, activeProjId, showToast, closeModal, router]);
+
+  const openTaskDetail = useCallback(
+    (task: Task, projectId: string, col: ColKey) => {
+      setEditingTask({
+        id: task.id,
+        projectId,
+        title: task.title,
+        desc: task.desc,
+        priority: task.priority,
+        col,
+        tags: task.tags.join(", "),
+        date: /^\d{4}-\d{2}-\d{2}$/.test(task.date) ? task.date : "",
+      });
+      openModal("mTaskDetail");
+    },
+    [openModal]
+  );
+
+  const saveTaskDetail = useCallback(() => {
+    if (!editingTask) return;
+    const title = editingTask.title.trim();
+    if (!title) {
+      showToast("Title can't be empty");
+      return;
+    }
+    const tags = editingTask.tags
+      ? editingTask.tags
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean)
+      : [];
+    const id = editingTask.id;
+    startTransition(async () => {
+      await updateTaskAction({
+        id,
+        title,
+        description: editingTask.desc.trim(),
+        priority: editingTask.priority,
+        column: editingTask.col,
+        tags,
+        dueDate: editingTask.date || "No date",
+      });
+      closeModal();
+      setEditingTask(null);
+      showToast("Task updated");
+      router.refresh();
+    });
+  }, [editingTask, showToast, closeModal, router]);
+
+  const deleteTask = useCallback(() => {
+    if (!editingTask) return;
+    const id = editingTask.id;
+    startTransition(async () => {
+      await deleteTaskAction({ id });
+      closeModal();
+      setEditingTask(null);
+      showToast("Task deleted");
+      router.refresh();
+    });
+  }, [editingTask, showToast, closeModal, router]);
 
   // ---------- Doc ops ----------
   const switchDocProj = useCallback((id: string) => {
@@ -799,6 +920,7 @@ export default function TaskManager({
             project={activeProj}
             quickAdd={quickAdd}
             openProjectModal={() => openModal("mProject")}
+            onOpenDetail={openTaskDetail}
           />
         </div>
 
@@ -888,11 +1010,10 @@ export default function TaskManager({
         </div>
 
         <div className={"page" + (page === "calendar" ? " active" : "")}>
-          <div className="sec-pg">
-            <div className="sec-ico">📅</div>
-            <div className="sec-tit">Calendar</div>
-            <div className="sec-sub">Timeline view coming soon.</div>
-          </div>
+          <CalendarView
+            projects={projects}
+            onOpenProject={(id) => switchProj(id)}
+          />
         </div>
 
         <div className={"page" + (page === "automations" ? " active" : "")}>
@@ -1097,9 +1218,8 @@ export default function TaskManager({
           <div className="fg">
             <label className="fl">Due Date</label>
             <input
-              type="text"
+              type="date"
               className="fi"
-              placeholder="e.g. July 10"
               value={taskForm.date}
               onChange={(e) =>
                 setTaskForm({ ...taskForm, date: e.target.value })
@@ -1115,6 +1235,115 @@ export default function TaskManager({
             Add Task
           </button>
         </div>
+      </Modal>
+
+      <Modal
+        id="mTaskDetail"
+        open={openModalId === "mTaskDetail" && editingTask !== null}
+        onBackdrop={closeModal}
+      >
+        {editingTask && (
+          <>
+            <div className="m-title">Edit Task</div>
+            <div className="fg">
+              <label className="fl">Title</label>
+              <input
+                type="text"
+                className="fi"
+                value={editingTask.title}
+                onChange={(e) =>
+                  setEditingTask({ ...editingTask, title: e.target.value })
+                }
+              />
+            </div>
+            <div className="fg">
+              <label className="fl">Description</label>
+              <textarea
+                className="ft"
+                style={{ minHeight: 72 }}
+                value={editingTask.desc}
+                onChange={(e) =>
+                  setEditingTask({ ...editingTask, desc: e.target.value })
+                }
+              />
+            </div>
+            <div className="frow">
+              <div className="fg">
+                <label className="fl">Priority</label>
+                <select
+                  className="fs"
+                  value={editingTask.priority}
+                  onChange={(e) =>
+                    setEditingTask({
+                      ...editingTask,
+                      priority: e.target.value as Priority,
+                    })
+                  }
+                >
+                  <option value="High">High</option>
+                  <option value="Medium">Medium</option>
+                  <option value="Low">Low</option>
+                </select>
+              </div>
+              <div className="fg">
+                <label className="fl">Column</label>
+                <select
+                  className="fs"
+                  value={editingTask.col}
+                  onChange={(e) =>
+                    setEditingTask({
+                      ...editingTask,
+                      col: e.target.value as ColKey,
+                    })
+                  }
+                >
+                  <option value="todo">To Do</option>
+                  <option value="inprogress">In Progress</option>
+                  <option value="inreview">In Review</option>
+                  <option value="done">Done</option>
+                </select>
+              </div>
+            </div>
+            <div className="frow">
+              <div className="fg">
+                <label className="fl">Tags</label>
+                <input
+                  type="text"
+                  className="fi"
+                  placeholder="UI design, Backend"
+                  value={editingTask.tags}
+                  onChange={(e) =>
+                    setEditingTask({ ...editingTask, tags: e.target.value })
+                  }
+                />
+              </div>
+              <div className="fg">
+                <label className="fl">Due Date</label>
+                <input
+                  type="date"
+                  className="fi"
+                  value={editingTask.date}
+                  onChange={(e) =>
+                    setEditingTask({ ...editingTask, date: e.target.value })
+                  }
+                />
+              </div>
+            </div>
+            <div className="m-acts m-acts-split">
+              <button className="btn bd" onClick={deleteTask}>
+                Delete
+              </button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="btn bg" onClick={closeModal}>
+                  Cancel
+                </button>
+                <button className="btn bp" onClick={saveTaskDetail}>
+                  Save
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </Modal>
 
       <Modal
@@ -1332,10 +1561,12 @@ function TasksView({
   project,
   quickAdd,
   openProjectModal,
+  onOpenDetail,
 }: {
   project: Project | null;
   quickAdd: (c: ColKey) => void;
   openProjectModal: () => void;
+  onOpenDetail: (task: Task, projectId: string, col: ColKey) => void;
 }) {
   if (!project) {
     return (
@@ -1393,7 +1624,11 @@ function TasksView({
               </div>
               <div>
                 {ct.map((t) => (
-                  <Card key={t.id} task={t} />
+                  <Card
+                    key={t.id}
+                    task={t}
+                    onClick={() => onOpenDetail(t, project.id, c.key)}
+                  />
                 ))}
               </div>
             </div>
@@ -1404,9 +1639,10 @@ function TasksView({
   );
 }
 
-function Card({ task }: { task: Task }) {
+function Card({ task, onClick }: { task: Task; onClick: () => void }) {
   return (
-    <div className="card">
+    <div className="card" onClick={onClick} role="button" tabIndex={0}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }}>
       <div className="c-tags">
         <span className={"tag " + PM[task.priority]}>{task.priority}</span>
         {task.tags.map((x, i) => (
@@ -1999,6 +2235,199 @@ function PromptsView({
               </div>
             );
           })
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CalendarView({
+  projects,
+  onOpenProject,
+}: {
+  projects: Project[];
+  onOpenProject: (projectId: string) => void;
+}) {
+  const [cursor, setCursor] = useState(() => {
+    const d = new Date();
+    d.setDate(1);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  });
+  const [selectedDay, setSelectedDay] = useState<string>(() => isoKey(new Date()));
+
+  const tasksByDay = useMemo(() => {
+    const map: Record<
+      string,
+      Array<{
+        task: Task;
+        col: ColKey;
+        projectId: string;
+        projectName: string;
+        projectColor: string;
+      }>
+    > = {};
+    for (const p of projects) {
+      for (const c of COLS) {
+        for (const t of p.tasks[c.key]) {
+          const d = parseTaskDate(t.date);
+          if (!d) continue;
+          const k = isoKey(d);
+          (map[k] ||= []).push({
+            task: t,
+            col: c.key,
+            projectId: p.id,
+            projectName: p.name,
+            projectColor: p.color,
+          });
+        }
+      }
+    }
+    return map;
+  }, [projects]);
+
+  const monthLabel = cursor.toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+  });
+  const days = useMemo(() => buildMonthGrid(cursor), [cursor]);
+  const todayKey = isoKey(new Date());
+  const selected = tasksByDay[selectedDay] || [];
+  const monthTaskCount = useMemo(() => {
+    let n = 0;
+    for (const d of days) {
+      if (d.getMonth() !== cursor.getMonth()) continue;
+      n += (tasksByDay[isoKey(d)] || []).length;
+    }
+    return n;
+  }, [days, cursor, tasksByDay]);
+
+  const shiftMonth = (delta: number) => {
+    const d = new Date(cursor);
+    d.setMonth(d.getMonth() + delta);
+    setCursor(d);
+  };
+  const goToday = () => {
+    const d = new Date();
+    d.setDate(1);
+    d.setHours(0, 0, 0, 0);
+    setCursor(d);
+    setSelectedDay(isoKey(new Date()));
+  };
+
+  return (
+    <div className="cal">
+      <div className="cal-head">
+        <div className="cal-head-l">
+          <button
+            className="cal-nav"
+            onClick={() => shiftMonth(-1)}
+            aria-label="Previous month"
+          >
+            ‹
+          </button>
+          <div className="cal-title">{monthLabel}</div>
+          <button
+            className="cal-nav"
+            onClick={() => shiftMonth(1)}
+            aria-label="Next month"
+          >
+            ›
+          </button>
+        </div>
+        <div className="cal-head-r">
+          <span className="cal-count">
+            {monthTaskCount} task{monthTaskCount === 1 ? "" : "s"} this month
+          </span>
+          <button className="cal-today" onClick={goToday}>
+            Today
+          </button>
+        </div>
+      </div>
+      <div className="cal-wk">
+        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((w) => (
+          <div className="cal-wk-i" key={w}>
+            {w}
+          </div>
+        ))}
+      </div>
+      <div className="cal-grid">
+        {days.map((d) => {
+          const k = isoKey(d);
+          const items = tasksByDay[k] || [];
+          const inMonth = d.getMonth() === cursor.getMonth();
+          const isToday = k === todayKey;
+          const isSel = k === selectedDay;
+          return (
+            <div
+              key={k}
+              className={
+                "cal-cell" +
+                (inMonth ? "" : " out") +
+                (isToday ? " today" : "") +
+                (isSel ? " sel" : "")
+              }
+              onClick={() => setSelectedDay(k)}
+            >
+              <div className="cal-d-n">{d.getDate()}</div>
+              <div className="cal-chips">
+                {items.slice(0, 3).map((it, i) => (
+                  <div
+                    key={i}
+                    className="cal-chip"
+                    style={{ borderLeftColor: it.projectColor }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenProject(it.projectId);
+                    }}
+                    title={`${it.task.title} · ${it.projectName}`}
+                  >
+                    <span
+                      className="cal-chip-dot"
+                      style={{ background: it.projectColor }}
+                    />
+                    <span className="cal-chip-tit">{it.task.title}</span>
+                  </div>
+                ))}
+                {items.length > 3 && (
+                  <div className="cal-more">+{items.length - 3} more</div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="cal-day-pnl">
+        <div className="cal-day-h">
+          <span className="cal-day-h-d">{prettyDay(selectedDay)}</span>
+          <span className="cal-day-h-c">
+            {selected.length} task{selected.length === 1 ? "" : "s"}
+          </span>
+        </div>
+        {selected.length === 0 ? (
+          <div className="cal-day-empty">No tasks scheduled.</div>
+        ) : (
+          <div className="cal-day-list">
+            {selected.map((it, i) => (
+              <div
+                key={i}
+                className="cal-day-row"
+                onClick={() => onOpenProject(it.projectId)}
+              >
+                <span
+                  className="cal-chip-dot"
+                  style={{ background: it.projectColor }}
+                />
+                <div className="cal-day-row-tit">{it.task.title}</div>
+                <span className={"cal-pill " + PM[it.task.priority]}>
+                  {it.task.priority}
+                </span>
+                <span className="cal-day-row-meta">
+                  {SL[it.col]} · {it.projectName}
+                </span>
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>
