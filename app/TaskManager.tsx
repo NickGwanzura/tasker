@@ -101,7 +101,6 @@ type PageKey =
   | "security-overview"
   | "audit-logs"
   | "calendar"
-  | "automations"
   | "settings";
 
 // ---------- Constants ----------
@@ -171,7 +170,6 @@ const PT: Record<PageKey, string> = {
   "security-overview": "Security",
   "audit-logs": "Audit Logs",
   calendar: "Calendar",
-  automations: "Automations",
   settings: "Settings",
 };
 
@@ -935,15 +933,6 @@ export default function TaskManager({
             </svg>
             Reports
           </div>
-          <div
-            className={"ni" + (page === "automations" ? " active" : "")}
-            onClick={() => navTo("automations")}
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-            </svg>
-            Automations
-          </div>
         </div>
 
         <SecuritySection
@@ -1094,14 +1083,6 @@ export default function TaskManager({
             projects={projects}
             onOpenProject={(id) => switchProj(id)}
           />
-        </div>
-
-        <div className={"page" + (page === "automations" ? " active" : "")}>
-          <div className="sec-pg">
-            <div className="sec-ico">⚡</div>
-            <div className="sec-tit">Automations</div>
-            <div className="sec-sub">Workflow automation coming soon.</div>
-          </div>
         </div>
 
         <div className={"page" + (page === "settings" ? " active" : "")}>
@@ -2629,6 +2610,19 @@ function PromptsView({
   );
 }
 
+function bucketForTime(time: string): "today" | "week" | "older" {
+  const t = time.toLowerCase();
+  if (/just now|min|hour|today/.test(t)) return "today";
+  if (/yesterday|day|week/.test(t)) return "week";
+  return "older";
+}
+
+const BUCKET_LABEL: Record<"today" | "week" | "older", string> = {
+  today: "Today",
+  week: "Earlier this week",
+  older: "Older",
+};
+
 function AuditLogsView({ projects }: { projects: Project[] }) {
   const [query, setQuery] = useState("");
   const [projFilter, setProjFilter] = useState<string>("all");
@@ -2671,147 +2665,226 @@ function AuditLogsView({ projects }: { projects: Project[] }) {
     });
   }, [entries, query, projFilter]);
 
+  const grouped = useMemo(() => {
+    const g: Record<"today" | "week" | "older", typeof filtered> = {
+      today: [],
+      week: [],
+      older: [],
+    };
+    for (const e of filtered) g[bucketForTime(e.time)].push(e);
+    return g;
+  }, [filtered]);
+
   const totalEvents = entries.length;
   const projectCount = projects.length;
-  const activeProjects = useMemo(
-    () =>
-      new Set(
-        entries
-          .filter((e) => /today|hour|min/i.test(e.time))
-          .map((e) => e.projectId)
-      ).size,
+  const activeToday = useMemo(
+    () => entries.filter((e) => bucketForTime(e.time) === "today").length,
     [entries]
   );
 
+  const clearFilters = () => {
+    setQuery("");
+    setProjFilter("all");
+  };
+  const hasFilters = query.trim() !== "" || projFilter !== "all";
+
   return (
-    <div className="sec-pg" style={{ maxWidth: 980 }}>
-      <div className="sec-ico">📋</div>
-      <div className="sec-tit">Audit Logs</div>
-      <div className="sec-sub">
-        Activity across every project, in one timeline.
-      </div>
-
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-          gap: 12,
-          marginTop: 18,
-        }}
-      >
-        <div className="sc">
-          <div className="sc-tit">{totalEvents}</div>
-          <div className="sc-desc">Total events</div>
-        </div>
-        <div className="sc">
-          <div className="sc-tit">{projectCount}</div>
-          <div className="sc-desc">Projects tracked</div>
-        </div>
-        <div className="sc">
-          <div className="sc-tit">{activeProjects}</div>
-          <div className="sc-desc">Active recently</div>
+    <div className="audit">
+      <div className="audit-hd">
+        <div className="audit-hd-l">
+          <div className="audit-hd-ico">📋</div>
+          <div>
+            <div className="audit-hd-tit">Audit Logs</div>
+            <div className="audit-hd-sub">
+              Activity across every project, in one timeline.
+            </div>
+          </div>
         </div>
       </div>
 
-      <div
-        style={{
-          display: "flex",
-          gap: 10,
-          marginTop: 18,
-          flexWrap: "wrap",
-          alignItems: "center",
-        }}
-      >
-        <input
-          type="text"
-          placeholder="Search events…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          style={{
-            flex: "1 1 220px",
-            padding: "8px 12px",
-            borderRadius: 8,
-            border: "1px solid var(--border, #e5e7eb)",
-            fontSize: 13,
-            background: "var(--bg, #fff)",
-            color: "inherit",
-          }}
-        />
-        <select
-          value={projFilter}
-          onChange={(e) => setProjFilter(e.target.value)}
-          style={{
-            padding: "8px 12px",
-            borderRadius: 8,
-            border: "1px solid var(--border, #e5e7eb)",
-            fontSize: 13,
-            background: "var(--bg, #fff)",
-            color: "inherit",
-          }}
-        >
-          <option value="all">All projects</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
+      <div className="audit-stats">
+        <div className="audit-stat">
+          <div className="audit-stat-lbl">Total events</div>
+          <div className="audit-stat-val">{totalEvents}</div>
+        </div>
+        <div className="audit-stat">
+          <div className="audit-stat-lbl">Projects tracked</div>
+          <div className="audit-stat-val">{projectCount}</div>
+        </div>
+        <div className="audit-stat">
+          <div className="audit-stat-lbl">Today</div>
+          <div className="audit-stat-val">{activeToday}</div>
+        </div>
       </div>
 
-      <div className="report-section" style={{ marginTop: 18 }}>
-        <div className="rs-title">
-          Timeline
-          <span>
-            {filtered.length} of {totalEvents} events
-          </span>
-        </div>
-        {filtered.length === 0 ? (
-          <div
-            style={{
-              padding: "20px 0",
-              color: "var(--muted2)",
-              fontSize: 13,
-              textAlign: "center",
-            }}
+      <div className="audit-bar">
+        <div className="audit-search">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
           >
-            {totalEvents === 0
-              ? "No activity recorded yet."
-              : "No events match your filters."}
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.35-4.35" />
+          </svg>
+          <input
+            type="text"
+            placeholder="Search events…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Search audit events"
+          />
+          {query && (
+            <button
+              type="button"
+              className="audit-search-clear"
+              onClick={() => setQuery("")}
+              aria-label="Clear search"
+            >
+              ×
+            </button>
+          )}
+        </div>
+        {hasFilters && (
+          <button
+            type="button"
+            className="audit-clear-all"
+            onClick={clearFilters}
+          >
+            Reset filters
+          </button>
+        )}
+      </div>
+
+      <div className="audit-chips" role="tablist" aria-label="Filter by project">
+        <button
+          type="button"
+          className={"audit-chip" + (projFilter === "all" ? " active" : "")}
+          onClick={() => setProjFilter("all")}
+          role="tab"
+          aria-selected={projFilter === "all"}
+        >
+          All projects
+          <span className="audit-chip-count">{entries.length}</span>
+        </button>
+        {projects.map((p) => {
+          const count = entries.filter((e) => e.projectId === p.id).length;
+          const active = projFilter === p.id;
+          return (
+            <button
+              type="button"
+              key={p.id}
+              className={"audit-chip" + (active ? " active" : "")}
+              onClick={() => setProjFilter(p.id)}
+              role="tab"
+              aria-selected={active}
+              style={
+                active
+                  ? {
+                      borderColor: p.color,
+                      background: hexToRgba(p.color, 0.12),
+                      color: p.color,
+                    }
+                  : undefined
+              }
+            >
+              <span
+                className="audit-chip-dot"
+                style={{ background: p.color }}
+                aria-hidden="true"
+              />
+              <span className="audit-chip-name">{p.name}</span>
+              <span className="audit-chip-count">{count}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="audit-stream">
+        {filtered.length === 0 ? (
+          <div className="audit-empty">
+            <div className="audit-empty-ico">
+              {totalEvents === 0 ? "🌱" : "🔍"}
+            </div>
+            <div className="audit-empty-tit">
+              {totalEvents === 0
+                ? "No activity recorded yet"
+                : "No events match your filters"}
+            </div>
+            <div className="audit-empty-sub">
+              {totalEvents === 0
+                ? "Create or edit tasks and activity will appear here."
+                : "Try a different search or reset the project filter."}
+            </div>
+            {totalEvents > 0 && hasFilters && (
+              <button
+                type="button"
+                className="audit-empty-btn"
+                onClick={clearFilters}
+              >
+                Reset filters
+              </button>
+            )}
           </div>
         ) : (
-          filtered.map((e, i) => (
-            <div className="activity-row" key={i}>
-              <div className="act-icon">{e.icon}</div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div
-                  className="act-text"
-                  dangerouslySetInnerHTML={{ __html: e.text }}
-                />
-                <div
-                  style={{
-                    fontSize: 11,
-                    color: "var(--muted2)",
-                    marginTop: 2,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                  }}
-                >
-                  <span
-                    style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: "50%",
-                      background: e.projectColor,
-                      display: "inline-block",
-                    }}
-                  />
-                  {e.projectName}
-                </div>
-              </div>
-              <span className="act-time">{e.time}</span>
-            </div>
-          ))
+          (["today", "week", "older"] as const).map((bucket) => {
+            const items = grouped[bucket];
+            if (items.length === 0) return null;
+            return (
+              <section className="audit-group" key={bucket}>
+                <header className="audit-group-hd">
+                  <span className="audit-group-tit">
+                    {BUCKET_LABEL[bucket]}
+                  </span>
+                  <span className="audit-group-cnt">{items.length}</span>
+                </header>
+                <ul className="audit-list">
+                  {items.map((e, i) => (
+                    <li className="audit-row" key={`${bucket}-${i}`}>
+                      <div
+                        className="audit-row-ico"
+                        style={{
+                          background: hexToRgba(e.projectColor, 0.14),
+                          color: e.projectColor,
+                        }}
+                      >
+                        <span aria-hidden="true">{e.icon}</span>
+                      </div>
+                      <div className="audit-row-body">
+                        <div
+                          className="audit-row-text"
+                          dangerouslySetInnerHTML={{ __html: e.text }}
+                        />
+                        <div className="audit-row-meta">
+                          <span
+                            className="audit-row-tag"
+                            style={{
+                              background: hexToRgba(e.projectColor, 0.12),
+                              color: e.projectColor,
+                            }}
+                          >
+                            <span
+                              className="audit-row-tag-dot"
+                              style={{ background: e.projectColor }}
+                              aria-hidden="true"
+                            />
+                            {e.projectName}
+                          </span>
+                          <span className="audit-row-time">{e.time}</span>
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            );
+          })
         )}
       </div>
     </div>
