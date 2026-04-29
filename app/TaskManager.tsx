@@ -19,12 +19,24 @@ import {
   deleteDocAction,
   deleteTaskAction,
   exportAllDataAction,
+  moveTaskAction,
   newDocAction,
   updateDocAction,
   updateSettingsAction,
   updateTaskAction,
   wipeAllDataAction,
 } from "./actions";
+import {
+  DndContext,
+  type DragEndEvent,
+  type DragStartEvent,
+  DragOverlay,
+  PointerSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
 
 // ---------- Types ----------
 type ColKey = "todo" | "inprogress" | "inreview" | "done";
@@ -87,6 +99,7 @@ type PageKey =
   | "reporting"
   | "prompts"
   | "security-overview"
+  | "audit-logs"
   | "calendar"
   | "automations"
   | "settings";
@@ -156,6 +169,7 @@ const PT: Record<PageKey, string> = {
   reporting: "Reports",
   prompts: "Prompt Vault",
   "security-overview": "Security",
+  "audit-logs": "Audit Logs",
   calendar: "Calendar",
   automations: "Automations",
   settings: "Settings",
@@ -350,11 +364,6 @@ export default function TaskManager({
   const docTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const docTitleInputRef = useRef<HTMLInputElement | null>(null);
 
-  const getProj = useCallback(
-    (id: string | null) => projects.find((p) => p.id === id) ?? null,
-    [projects]
-  );
-
   const showToast = useCallback((msg: string) => {
     const id = Date.now() + Math.random();
     setToasts((t) => [...t, { id, msg }]);
@@ -423,7 +432,14 @@ export default function TaskManager({
   }, [projForm, showToast, closeModal, router]);
 
   const switchProj = useCallback((id: string) => {
-    setActiveProjId(id);
+    setActiveProjId((cur) => (cur === id ? null : id));
+    setPage("tasks");
+    setTabActive("Board");
+    setSidebarOpen(false);
+  }, []);
+
+  const showAllProjects = useCallback(() => {
+    setActiveProjId(null);
     setPage("tasks");
     setTabActive("Board");
     setSidebarOpen(false);
@@ -440,7 +456,8 @@ export default function TaskManager({
   }, [appSettings.defaultPriority, appSettings.defaultColumn, openModal]);
 
   const quickAdd = useCallback(
-    (c: ColKey) => {
+    (projectId: string, c: ColKey) => {
+      setActiveProjId(projectId);
       setTaskForm((f) => ({
         ...f,
         col: c,
@@ -550,6 +567,54 @@ export default function TaskManager({
       router.refresh();
     });
   }, [editingTask, showToast, closeModal, router]);
+
+  const moveTask = useCallback(
+    (taskId: number, toProjectId: string, toCol: ColKey) => {
+      let movedTask: Task | null = null;
+      let fromKey: { projectId: string; col: ColKey } | null = null;
+      setProjects((ps) =>
+        ps.map((p) => {
+          const next = { ...p, tasks: { ...p.tasks } };
+          for (const c of COLS) {
+            const list = next.tasks[c.key];
+            const idx = list.findIndex((t) => t.id === taskId);
+            if (idx >= 0) {
+              movedTask = list[idx];
+              fromKey = { projectId: p.id, col: c.key };
+              next.tasks[c.key] = list.filter((_, i) => i !== idx);
+            }
+          }
+          return next;
+        })
+      );
+      if (!movedTask) return;
+      setProjects((ps) =>
+        ps.map((p) =>
+          p.id === toProjectId
+            ? {
+                ...p,
+                tasks: {
+                  ...p.tasks,
+                  [toCol]: [...p.tasks[toCol], movedTask as Task],
+                },
+              }
+            : p
+        )
+      );
+      if (
+        fromKey &&
+        (fromKey as { projectId: string; col: ColKey }).projectId === toProjectId &&
+        (fromKey as { projectId: string; col: ColKey }).col === toCol
+      ) {
+        return;
+      }
+      startTransition(async () => {
+        await moveTaskAction({ id: taskId, toProjectId, toColumn: toCol });
+        router.refresh();
+      });
+    },
+    [router]
+  );
 
   // ---------- Doc ops ----------
   const switchDocProj = useCallback((id: string) => {
@@ -727,10 +792,10 @@ export default function TaskManager({
   }, [projects, activeDocProjId, activeReportProjId]);
 
   // ---------- Derived ----------
-  const activeProj = getProj(activeProjId);
-  const taskTotal = activeProj
-    ? Object.values(activeProj.tasks).reduce((s, a) => s + a.length, 0)
-    : 0;
+  const taskTotal = projects.reduce(
+    (sum, p) => sum + Object.values(p.tasks).reduce((s, a) => s + a.length, 0),
+    0
+  );
 
   // ---------- Render ----------
   return (
@@ -808,16 +873,34 @@ export default function TaskManager({
                 No projects yet
               </div>
             ) : (
-              projects.map((p) => (
+              <>
                 <div
-                  key={p.id}
-                  className={"ni" + (activeProjId === p.id ? " active" : "")}
-                  onClick={() => switchProj(p.id)}
+                  className={
+                    "ni" +
+                    (activeProjId === null && page === "tasks" ? " active" : "")
+                  }
+                  onClick={showAllProjects}
                 >
-                  <div className="n-dot" style={{ background: p.color }} />
-                  {p.name}
+                  <div
+                    className="n-dot"
+                    style={{
+                      background:
+                        "linear-gradient(135deg,#3b5bdb,#0ca678,#e67700)",
+                    }}
+                  />
+                  All projects
                 </div>
-              ))
+                {projects.map((p) => (
+                  <div
+                    key={p.id}
+                    className={"ni" + (activeProjId === p.id ? " active" : "")}
+                    onClick={() => switchProj(p.id)}
+                  >
+                    <div className="n-dot" style={{ background: p.color }} />
+                    {p.name}
+                  </div>
+                ))}
+              </>
             )}
           </div>
           <button className="add-proj-btn" onClick={() => openModal("mProject")}>
@@ -866,6 +949,7 @@ export default function TaskManager({
         <SecuritySection
           openSecFolders={openSecFolders}
           setOpenSecFolders={setOpenSecFolders}
+          onOpenAuditLogs={() => navTo("audit-logs")}
         />
 
         <div className="s-sec" style={{ paddingBottom: 16 }}>
@@ -917,10 +1001,13 @@ export default function TaskManager({
 
         <div className={"page" + (page === "tasks" ? " active" : "")}>
           <TasksView
-            project={activeProj}
+            projects={projects}
+            activeProjId={activeProjId}
+            onClearProjectFilter={showAllProjects}
             quickAdd={quickAdd}
             openProjectModal={() => openModal("mProject")}
             onOpenDetail={openTaskDetail}
+            onMoveTask={moveTask}
           />
         </div>
 
@@ -985,28 +1072,21 @@ export default function TaskManager({
                 <div className="sc-tit">Auth &amp; Access</div>
                 <div className="sc-desc">Login flows, roles and MFA</div>
               </div>
-              <div className="sc">
-                <div className="sc-ico">🔍</div>
-                <div className="sc-tit">Vulnerabilities</div>
-                <div className="sc-desc">CVE tracking and patches</div>
-              </div>
-              <div className="sc">
+              <div
+                className="sc"
+                style={{ cursor: "pointer" }}
+                onClick={() => navTo("audit-logs")}
+              >
                 <div className="sc-ico">📋</div>
                 <div className="sc-tit">Audit Logs</div>
                 <div className="sc-desc">Activity and session records</div>
               </div>
-              <div className="sc">
-                <div className="sc-ico">✅</div>
-                <div className="sc-tit">Compliance</div>
-                <div className="sc-desc">GDPR and data policies</div>
-              </div>
-              <div className="sc">
-                <div className="sc-ico">🖥️</div>
-                <div className="sc-tit">Infra Security</div>
-                <div className="sc-desc">Firewall, SSL, rate limits</div>
-              </div>
             </div>
           </div>
+        </div>
+
+        <div className={"page" + (page === "audit-logs" ? " active" : "")}>
+          <AuditLogsView projects={projects} />
         </div>
 
         <div className={"page" + (page === "calendar" ? " active" : "")}>
@@ -1472,110 +1552,169 @@ function TopbarButtons({
 function SecuritySection({
   openSecFolders,
   setOpenSecFolders,
+  onOpenAuditLogs,
 }: {
   openSecFolders: Record<string, boolean>;
   setOpenSecFolders: (
     fn: (prev: Record<string, boolean>) => Record<string, boolean>
   ) => void;
+  onOpenAuditLogs: () => void;
 }) {
-  const folders = [
-    {
-      id: "vuln-f",
-      label: "Vulnerability Mgmt",
-      kids: ["Pen Testing Logs", "CVE Tracker", "Patch Status"],
-      icon: (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-          <line x1="12" y1="9" x2="12" y2="13" />
-          <line x1="12" y1="17" x2="12.01" y2="17" />
-        </svg>
-      ),
-    },
-    {
-      id: "audit-f",
-      label: "Audit Logs",
-      kids: ["Activity Timeline", "Session Logs"],
-      icon: (
+  const id = "audit-f";
+  const open = !!openSecFolders[id];
+  const toggle = () =>
+    setOpenSecFolders((p) => ({ ...p, [id]: !p[id] }));
+
+  return (
+    <div className="s-sec">
+      <div className="s-lbl">App Security</div>
+      <div className="ni" onClick={toggle}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
           <polyline points="14 2 14 8 20 8" />
           <line x1="16" y1="13" x2="8" y2="13" />
           <line x1="16" y1="17" x2="8" y2="17" />
         </svg>
-      ),
-    },
-    {
-      id: "comp-f",
-      label: "Compliance",
-      kids: ["GDPR Checklist", "Data Policies", "Security Reports"],
-      icon: (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M9 11l3 3L22 4" />
-          <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
-        </svg>
-      ),
-    },
-    {
-      id: "infra-f",
-      label: "Infra Security",
-      kids: ["Firewall Rules", "SSL Certs", "API Rate Limits", "Secrets Management"],
-      icon: (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <rect x="2" y="3" width="20" height="14" rx="2" />
-          <line x1="8" y1="21" x2="16" y2="21" />
-          <line x1="12" y1="17" x2="12" y2="21" />
-        </svg>
-      ),
-    },
-  ];
-
-  const toggle = (id: string) =>
-    setOpenSecFolders((p) => ({ ...p, [id]: !p[id] }));
-
-  return (
-    <div className="s-sec">
-      <div className="s-lbl">App Security</div>
-      {folders.map((f) => (
-        <div key={f.id}>
-          <div className="ni" onClick={() => toggle(f.id)}>
-            {f.icon}
-            {f.label}
-            <span className={"chev" + (openSecFolders[f.id] ? " open" : "")}>
-              ›
-            </span>
-          </div>
-          <div className={"sf-kids" + (openSecFolders[f.id] ? " open" : "")}>
-            {f.kids.map((k) => (
-              <div key={k} className="sf-item">
-                {k}
-              </div>
-            ))}
-          </div>
+        Audit Logs
+        <span className={"chev" + (open ? " open" : "")}>›</span>
+      </div>
+      <div className={"sf-kids" + (open ? " open" : "")}>
+        <div className="sf-item" onClick={onOpenAuditLogs}>
+          Activity Timeline
         </div>
-      ))}
+        <div className="sf-item" onClick={onOpenAuditLogs}>
+          Session Logs
+        </div>
+      </div>
     </div>
   );
 }
 
 function TasksView({
-  project,
+  projects,
+  activeProjId,
+  onClearProjectFilter,
   quickAdd,
   openProjectModal,
   onOpenDetail,
+  onMoveTask,
 }: {
-  project: Project | null;
-  quickAdd: (c: ColKey) => void;
+  projects: Project[];
+  activeProjId: string | null;
+  onClearProjectFilter: () => void;
+  quickAdd: (projectId: string, c: ColKey) => void;
   openProjectModal: () => void;
   onOpenDetail: (task: Task, projectId: string, col: ColKey) => void;
+  onMoveTask: (taskId: number, toProjectId: string, toCol: ColKey) => void;
 }) {
-  if (!project) {
+  const scopedProjects = useMemo(
+    () =>
+      activeProjId
+        ? projects.filter((p) => p.id === activeProjId)
+        : projects,
+    [projects, activeProjId]
+  );
+  const [search, setSearch] = useState("");
+  const [priorityFilter, setPriorityFilter] = useState<"all" | Priority>("all");
+  const [tagFilter, setTagFilter] = useState<string>("all");
+  const [activeDrag, setActiveDrag] = useState<Task | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+  );
+
+  const allTags = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of scopedProjects) {
+      for (const c of COLS) {
+        for (const t of p.tasks[c.key] || []) {
+          for (const tag of t.tags) set.add(tag);
+        }
+      }
+    }
+    return Array.from(set).sort();
+  }, [scopedProjects]);
+
+  const matches = useCallback(
+    (t: Task) => {
+      const q = search.trim().toLowerCase();
+      if (q) {
+        const hay = (t.title + " " + t.desc + " " + t.tags.join(" ")).toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      if (priorityFilter !== "all" && t.priority !== priorityFilter) return false;
+      if (tagFilter !== "all" && !t.tags.includes(tagFilter)) return false;
+      return true;
+    },
+    [search, priorityFilter, tagFilter]
+  );
+
+  const filteredProjects = useMemo(
+    () =>
+      scopedProjects.map((p) => {
+        const tasks = {
+          todo: (p.tasks.todo || []).filter(matches),
+          inprogress: (p.tasks.inprogress || []).filter(matches),
+          inreview: (p.tasks.inreview || []).filter(matches),
+          done: (p.tasks.done || []).filter(matches),
+        };
+        return { ...p, tasks };
+      }),
+    [scopedProjects, matches]
+  );
+
+  const totals = useMemo(() => {
+    const acc = { total: 0, todo: 0, inprogress: 0, inreview: 0, done: 0 };
+    for (const p of filteredProjects) {
+      for (const c of COLS) {
+        const n = (p.tasks[c.key] || []).length;
+        acc[c.key] += n;
+        acc.total += n;
+      }
+    }
+    return acc;
+  }, [filteredProjects]);
+
+  const onDragStart = useCallback(
+    (e: DragStartEvent) => {
+      const id = e.active.data.current?.task?.id as number | undefined;
+      if (id == null) return;
+      for (const p of projects) {
+        for (const c of COLS) {
+          const found = (p.tasks[c.key] || []).find((t) => t.id === id);
+          if (found) {
+            setActiveDrag(found);
+            return;
+          }
+        }
+      }
+    },
+    [projects]
+  );
+
+  const onDragEnd = useCallback(
+    (e: DragEndEvent) => {
+      setActiveDrag(null);
+      const taskId = e.active.data.current?.task?.id as number | undefined;
+      const over = e.over?.data.current as
+        | { projectId: string; col: ColKey }
+        | undefined;
+      if (taskId == null || !over) return;
+      onMoveTask(taskId, over.projectId, over.col);
+    },
+    [onMoveTask]
+  );
+
+  const onDragCancel = useCallback(() => setActiveDrag(null), []);
+
+  if (projects.length === 0) {
     return (
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <div className="no-proj">
           <div className="no-proj-ico">📋</div>
-          <div className="no-proj-tit">No project selected</div>
+          <div className="no-proj-tit">No projects yet</div>
           <div className="no-proj-sub">
-            Create or select a project from the sidebar to manage tasks.
+            Create a project to start adding tasks.
           </div>
           <button
             className="btn bp"
@@ -1592,49 +1731,298 @@ function TasksView({
       </div>
     );
   }
-  const total = Object.values(project.tasks).reduce((s, a) => s + a.length, 0);
+
+  const filterActive =
+    !!search.trim() || priorityFilter !== "all" || tagFilter !== "all";
+
+  const inputStyle: CSSProperties = {
+    padding: "6px 10px",
+    borderRadius: 8,
+    border: "1px solid var(--border, #e5e7eb)",
+    fontSize: 12.5,
+    background: "var(--bg, #fff)",
+    color: "inherit",
+  };
+
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div className="stats">
         <div className="chip">
-          <strong>{total}</strong> total
+          <strong>{totals.total}</strong> total
         </div>
         <div className="chip">
-          <strong>{project.tasks.inprogress.length}</strong> in progress
+          <strong>{totals.inprogress}</strong> in progress
         </div>
         <div className="chip">
-          <strong>{project.tasks.inreview.length}</strong> in review
+          <strong>{totals.inreview}</strong> in review
         </div>
         <div className="chip">
-          <strong>{project.tasks.done.length}</strong> done
+          <strong>{totals.done}</strong> done
+        </div>
+        <div className="chip" style={{ marginLeft: "auto" }}>
+          {activeProjId ? (
+            <>
+              <strong>1 of {projects.length}</strong>{" "}
+              {projects.length === 1 ? "project" : "projects"}
+            </>
+          ) : (
+            <>
+              <strong>{projects.length}</strong>{" "}
+              {projects.length === 1 ? "project" : "projects"}
+            </>
+          )}
         </div>
       </div>
-      <div className="board">
-        {COLS.map((c) => {
-          const ct = project.tasks[c.key] || [];
-          return (
-            <div className="col" key={c.key}>
-              <div className="col-hd">
-                <div className="col-dot" style={{ background: SC[c.key] }} />
-                <div className="col-tit">{c.label}</div>
-                <div className="col-cnt">{ct.length}</div>
-                <button className="col-add" onClick={() => quickAdd(c.key)}>
-                  +
-                </button>
-              </div>
-              <div>
-                {ct.map((t) => (
-                  <Card
-                    key={t.id}
-                    task={t}
-                    onClick={() => onOpenDetail(t, project.id, c.key)}
+
+      {activeProjId && scopedProjects[0] && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "8px 12px",
+            margin: "0 4px 4px",
+            background: "var(--chip-bg, #f1f5f9)",
+            borderRadius: 8,
+            fontSize: 12.5,
+          }}
+        >
+          <span
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: "50%",
+              background: scopedProjects[0].color,
+              display: "inline-block",
+            }}
+          />
+          <span>
+            Showing only <strong>{scopedProjects[0].name}</strong>
+          </span>
+          <button
+            className="btn"
+            style={{
+              marginLeft: "auto",
+              padding: "4px 10px",
+              fontSize: 12,
+            }}
+            onClick={onClearProjectFilter}
+          >
+            Show all projects
+          </button>
+        </div>
+      )}
+
+      <div
+        style={{
+          display: "flex",
+          gap: 8,
+          padding: "8px 4px",
+          flexWrap: "wrap",
+          alignItems: "center",
+        }}
+      >
+        <input
+          type="text"
+          placeholder="Search tasks…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{ ...inputStyle, flex: "1 1 220px", minWidth: 180 }}
+        />
+        <select
+          value={priorityFilter}
+          onChange={(e) =>
+            setPriorityFilter(e.target.value as "all" | Priority)
+          }
+          style={inputStyle}
+        >
+          <option value="all">All priorities</option>
+          <option value="High">High</option>
+          <option value="Medium">Medium</option>
+          <option value="Low">Low</option>
+        </select>
+        <select
+          value={tagFilter}
+          onChange={(e) => setTagFilter(e.target.value)}
+          style={inputStyle}
+          disabled={allTags.length === 0}
+        >
+          <option value="all">All tags</option>
+          {allTags.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+        {filterActive && (
+          <button
+            className="btn"
+            style={{ padding: "6px 10px", fontSize: 12 }}
+            onClick={() => {
+              setSearch("");
+              setPriorityFilter("all");
+              setTagFilter("all");
+            }}
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
+      <DndContext
+        sensors={sensors}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        onDragCancel={onDragCancel}
+      >
+        <div style={{ flex: 1, overflow: "auto", padding: "0 4px" }}>
+          {filteredProjects.map((project) => {
+            const projTotal = COLS.reduce(
+              (s, c) => s + (project.tasks[c.key] || []).length,
+              0
+            );
+            return (
+              <div key={project.id} style={{ marginBottom: 24 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "10px 4px 8px",
+                    borderBottom: "1px solid var(--border, #e5e7eb)",
+                    marginBottom: 10,
+                    position: "sticky",
+                    top: 0,
+                    background: "var(--bg, #fff)",
+                    zIndex: 1,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: "50%",
+                      background: project.color,
+                      display: "inline-block",
+                      flexShrink: 0,
+                    }}
                   />
-                ))}
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>
+                    {project.name}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 11.5,
+                      color: "var(--muted2)",
+                      background: "var(--chip-bg, #f1f5f9)",
+                      padding: "2px 8px",
+                      borderRadius: 10,
+                    }}
+                  >
+                    {projTotal} {projTotal === 1 ? "task" : "tasks"}
+                  </div>
+                </div>
+                <div className="board">
+                  {COLS.map((c) => {
+                    const ct = project.tasks[c.key] || [];
+                    return (
+                      <DroppableColumn
+                        key={c.key}
+                        projectId={project.id}
+                        col={c.key}
+                      >
+                        <div className="col-hd">
+                          <div
+                            className="col-dot"
+                            style={{ background: SC[c.key] }}
+                          />
+                          <div className="col-tit">{c.label}</div>
+                          <div className="col-cnt">{ct.length}</div>
+                          <button
+                            className="col-add"
+                            onClick={() => quickAdd(project.id, c.key)}
+                          >
+                            +
+                          </button>
+                        </div>
+                        <div>
+                          {ct.map((t) => (
+                            <DraggableCard
+                              key={t.id}
+                              task={t}
+                              onClick={() =>
+                                onOpenDetail(t, project.id, c.key)
+                              }
+                            />
+                          ))}
+                        </div>
+                      </DroppableColumn>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+        <DragOverlay dropAnimation={null}>
+          {activeDrag ? <Card task={activeDrag} onClick={() => {}} /> : null}
+        </DragOverlay>
+      </DndContext>
+    </div>
+  );
+}
+
+function DroppableColumn({
+  projectId,
+  col,
+  children,
+}: {
+  projectId: string;
+  col: ColKey;
+  children: React.ReactNode;
+}) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: `col:${projectId}:${col}`,
+    data: { projectId, col },
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      className="col"
+      style={
+        isOver
+          ? {
+              outline: "2px dashed var(--accent, #3b5bdb)",
+              outlineOffset: -2,
+              borderRadius: 8,
+            }
+          : undefined
+      }
+    >
+      {children}
+    </div>
+  );
+}
+
+function DraggableCard({
+  task,
+  onClick,
+}: {
+  task: Task;
+  onClick: () => void;
+}) {
+  const { setNodeRef, attributes, listeners, isDragging } = useDraggable({
+    id: `task:${task.id}`,
+    data: { task },
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      style={{ opacity: isDragging ? 0.4 : 1, touchAction: "none" }}
+    >
+      <Card task={task} onClick={onClick} />
     </div>
   );
 }
@@ -2235,6 +2623,195 @@ function PromptsView({
               </div>
             );
           })
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AuditLogsView({ projects }: { projects: Project[] }) {
+  const [query, setQuery] = useState("");
+  const [projFilter, setProjFilter] = useState<string>("all");
+
+  const entries = useMemo(() => {
+    const rows: {
+      icon: string;
+      text: string;
+      time: string;
+      projectId: string;
+      projectName: string;
+      projectColor: string;
+    }[] = [];
+    for (const p of projects) {
+      for (const a of p.activity || []) {
+        rows.push({
+          icon: a.icon,
+          text: a.text,
+          time: a.time,
+          projectId: p.id,
+          projectName: p.name,
+          projectColor: p.color,
+        });
+      }
+    }
+    return rows;
+  }, [projects]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return entries.filter((e) => {
+      if (projFilter !== "all" && e.projectId !== projFilter) return false;
+      if (!q) return true;
+      const plain = e.text.replace(/<[^>]*>/g, "").toLowerCase();
+      return (
+        plain.includes(q) ||
+        e.projectName.toLowerCase().includes(q) ||
+        e.time.toLowerCase().includes(q)
+      );
+    });
+  }, [entries, query, projFilter]);
+
+  const totalEvents = entries.length;
+  const projectCount = projects.length;
+  const activeProjects = useMemo(
+    () =>
+      new Set(
+        entries
+          .filter((e) => /today|hour|min/i.test(e.time))
+          .map((e) => e.projectId)
+      ).size,
+    [entries]
+  );
+
+  return (
+    <div className="sec-pg" style={{ maxWidth: 980 }}>
+      <div className="sec-ico">📋</div>
+      <div className="sec-tit">Audit Logs</div>
+      <div className="sec-sub">
+        Activity across every project, in one timeline.
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+          gap: 12,
+          marginTop: 18,
+        }}
+      >
+        <div className="sc">
+          <div className="sc-tit">{totalEvents}</div>
+          <div className="sc-desc">Total events</div>
+        </div>
+        <div className="sc">
+          <div className="sc-tit">{projectCount}</div>
+          <div className="sc-desc">Projects tracked</div>
+        </div>
+        <div className="sc">
+          <div className="sc-tit">{activeProjects}</div>
+          <div className="sc-desc">Active recently</div>
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          gap: 10,
+          marginTop: 18,
+          flexWrap: "wrap",
+          alignItems: "center",
+        }}
+      >
+        <input
+          type="text"
+          placeholder="Search events…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          style={{
+            flex: "1 1 220px",
+            padding: "8px 12px",
+            borderRadius: 8,
+            border: "1px solid var(--border, #e5e7eb)",
+            fontSize: 13,
+            background: "var(--bg, #fff)",
+            color: "inherit",
+          }}
+        />
+        <select
+          value={projFilter}
+          onChange={(e) => setProjFilter(e.target.value)}
+          style={{
+            padding: "8px 12px",
+            borderRadius: 8,
+            border: "1px solid var(--border, #e5e7eb)",
+            fontSize: 13,
+            background: "var(--bg, #fff)",
+            color: "inherit",
+          }}
+        >
+          <option value="all">All projects</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="report-section" style={{ marginTop: 18 }}>
+        <div className="rs-title">
+          Timeline
+          <span>
+            {filtered.length} of {totalEvents} events
+          </span>
+        </div>
+        {filtered.length === 0 ? (
+          <div
+            style={{
+              padding: "20px 0",
+              color: "var(--muted2)",
+              fontSize: 13,
+              textAlign: "center",
+            }}
+          >
+            {totalEvents === 0
+              ? "No activity recorded yet."
+              : "No events match your filters."}
+          </div>
+        ) : (
+          filtered.map((e, i) => (
+            <div className="activity-row" key={i}>
+              <div className="act-icon">{e.icon}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div
+                  className="act-text"
+                  dangerouslySetInnerHTML={{ __html: e.text }}
+                />
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: "var(--muted2)",
+                    marginTop: 2,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: "50%",
+                      background: e.projectColor,
+                      display: "inline-block",
+                    }}
+                  />
+                  {e.projectName}
+                </div>
+              </div>
+              <span className="act-time">{e.time}</span>
+            </div>
+          ))
         )}
       </div>
     </div>

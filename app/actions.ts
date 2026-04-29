@@ -88,6 +88,37 @@ export async function updateTaskAction(input: {
   revalidatePath("/");
 }
 
+export async function moveTaskAction(input: {
+  id: number;
+  toProjectId: string;
+  toColumn: ColKey;
+}) {
+  const before = await db
+    .select({ projectId: tasks.projectId, column: tasks.column, title: tasks.title })
+    .from(tasks)
+    .where(eq(tasks.id, input.id))
+    .limit(1);
+  if (!before[0]) return;
+  if (
+    before[0].projectId === input.toProjectId &&
+    before[0].column === input.toColumn
+  ) {
+    return;
+  }
+  await db
+    .update(tasks)
+    .set({ projectId: input.toProjectId, column: input.toColumn })
+    .where(eq(tasks.id, input.id));
+  await db.insert(activities).values({
+    projectId: input.toProjectId,
+    icon: "↔️",
+    text: `Task <b>${escapeHtml(before[0].title)}</b> moved to ${
+      COL_LABEL[input.toColumn]
+    }`,
+  });
+  revalidatePath("/");
+}
+
 export async function deleteTaskAction(input: { id: number }) {
   const row = await db
     .select({ projectId: tasks.projectId, title: tasks.title })
