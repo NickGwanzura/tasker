@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import {
   createQuoteAction,
   updateQuoteAction,
@@ -60,7 +60,6 @@ export default function Quotes({ initialQuotes }: { initialQuotes: Quote[] }) {
   const [editing, setEditing] = useState<Quote | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [, startTransition] = useTransition();
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -87,37 +86,60 @@ export default function Quotes({ initialQuotes }: { initialQuotes: Quote[] }) {
     };
   }, [quotes]);
 
-  const onCreate = (data: Omit<Quote, "id" | "createdAt" | "updatedAt" | "status">) => {
-    startTransition(async () => {
-      await createQuoteAction(data);
-      // optimistic local insert
-      setQuotes((prev) => [
-        {
-          ...data,
-          id: -Date.now(),
-          status: "draft",
-          createdAt: "Just now",
-          updatedAt: "Just now",
-        },
-        ...prev,
-      ]);
-    });
+  const onCreate = async (
+    data: Omit<Quote, "id" | "createdAt" | "updatedAt" | "status">
+  ) => {
     setShowForm(false);
+    const tempId = -Date.now();
+    const optimistic: Quote = {
+      ...data,
+      id: tempId,
+      status: "draft",
+      createdAt: "Just now",
+      updatedAt: "Just now",
+    };
+    setQuotes((prev) => [optimistic, ...prev]);
+    try {
+      const result = await createQuoteAction(data);
+      if (result?.id) {
+        setQuotes((prev) =>
+          prev.map((q) =>
+            q.id === tempId ? { ...optimistic, id: result.id!, status: result.status } : q
+          )
+        );
+      }
+    } catch (err) {
+      console.error("createQuoteAction failed:", err);
+      setQuotes((prev) => prev.filter((q) => q.id !== tempId));
+      alert("Failed to create quote. Check the browser console.");
+    }
   };
 
-  const onUpdate = (id: number, patch: Partial<Quote>) => {
+  const onUpdate = async (id: number, patch: Partial<Quote>) => {
+    const before = quotes.find((q) => q.id === id);
     setQuotes((prev) => prev.map((q) => (q.id === id ? { ...q, ...patch } : q)));
-    startTransition(async () => {
+    try {
       await updateQuoteAction({ id, ...patch });
-    });
+    } catch (err) {
+      console.error("updateQuoteAction failed:", err);
+      if (before) {
+        setQuotes((prev) => prev.map((q) => (q.id === id ? before : q)));
+      }
+      alert("Failed to update quote. Check the browser console.");
+    }
   };
 
-  const onDelete = (id: number) => {
+  const onDelete = async (id: number) => {
     if (!confirm("Delete this quote?")) return;
+    const before = quotes;
     setQuotes((prev) => prev.filter((q) => q.id !== id));
-    startTransition(async () => {
+    try {
       await deleteQuoteAction({ id });
-    });
+    } catch (err) {
+      console.error("deleteQuoteAction failed:", err);
+      setQuotes(before);
+      alert("Failed to delete quote. Check the browser console.");
+    }
   };
 
   const counts: Record<string, number> = { all: quotes.length };

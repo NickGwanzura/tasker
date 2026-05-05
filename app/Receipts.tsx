@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import {
   createReceiptAction,
   deleteReceiptAction,
@@ -45,7 +45,6 @@ export default function Receipts({
   const [showForm, setShowForm] = useState(false);
   const [query, setQuery] = useState("");
   const [methodFilter, setMethodFilter] = useState<string>("all");
-  const [, startTransition] = useTransition();
 
   const invoiceMap = useMemo(() => {
     const m = new Map<number, Invoice>();
@@ -91,23 +90,36 @@ export default function Receipts({
     counts[m] = receipts.filter((r) => r.paymentMethod === m).length;
   }
 
-  const onCreate = (data: Omit<Receipt, "id" | "createdAt">) => {
-    startTransition(async () => {
-      await createReceiptAction(data);
-      setReceipts((prev) => [
-        { ...data, id: -Date.now(), createdAt: "Just now" },
-        ...prev,
-      ]);
-    });
+  const onCreate = async (data: Omit<Receipt, "id" | "createdAt">) => {
     setShowForm(false);
+    const tempId = -Date.now();
+    const optimistic: Receipt = { ...data, id: tempId, createdAt: "Just now" };
+    setReceipts((prev) => [optimistic, ...prev]);
+    try {
+      const result = await createReceiptAction(data);
+      if (result?.id) {
+        setReceipts((prev) =>
+          prev.map((r) => (r.id === tempId ? { ...optimistic, id: result.id! } : r))
+        );
+      }
+    } catch (err) {
+      console.error("createReceiptAction failed:", err);
+      setReceipts((prev) => prev.filter((r) => r.id !== tempId));
+      alert("Failed to create receipt. Check the browser console.");
+    }
   };
 
-  const onDelete = (id: number) => {
+  const onDelete = async (id: number) => {
     if (!confirm("Delete this receipt?")) return;
+    const before = receipts;
     setReceipts((prev) => prev.filter((r) => r.id !== id));
-    startTransition(async () => {
+    try {
       await deleteReceiptAction({ id });
-    });
+    } catch (err) {
+      console.error("deleteReceiptAction failed:", err);
+      setReceipts(before);
+      alert("Failed to delete receipt. Check the browser console.");
+    }
   };
 
   return (

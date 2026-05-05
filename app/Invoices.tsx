@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import {
   createInvoiceAction,
   updateInvoiceAction,
@@ -89,7 +89,6 @@ export default function Invoices({
   const [editing, setEditing] = useState<Invoice | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [, startTransition] = useTransition();
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -131,33 +130,46 @@ export default function Invoices({
     }).length;
   }
 
-  const onCreate = (
+  const onCreate = async (
     data: Omit<Invoice, "id" | "createdAt" | "updatedAt" | "status">
   ) => {
-    startTransition(async () => {
-      await createInvoiceAction({
+    setShowForm(false);
+    const tempId = -Date.now();
+    const optimistic: Invoice = {
+      ...data,
+      id: tempId,
+      status: "unpaid",
+      createdAt: "Just now",
+      updatedAt: "Just now",
+    };
+    setInvoices((prev) => [optimistic, ...prev]);
+    try {
+      const result = await createInvoiceAction({
         ...data,
         dueDate: new Date(data.dueDate),
       });
-      setInvoices((prev) => [
-        {
-          ...data,
-          id: -Date.now(),
-          status: "unpaid",
-          createdAt: "Just now",
-          updatedAt: "Just now",
-        },
-        ...prev,
-      ]);
-    });
-    setShowForm(false);
+      if (result?.id) {
+        setInvoices((prev) =>
+          prev.map((i) =>
+            i.id === tempId ? { ...optimistic, id: result.id!, status: result.status } : i
+          )
+        );
+      }
+    } catch (err) {
+      console.error("createInvoiceAction failed:", err);
+      setInvoices((prev) => prev.filter((i) => i.id !== tempId));
+      alert(
+        "Failed to create invoice. Check the browser console for the error message."
+      );
+    }
   };
 
-  const onUpdate = (id: number, patch: Partial<Invoice>) => {
+  const onUpdate = async (id: number, patch: Partial<Invoice>) => {
+    const before = invoices.find((i) => i.id === id);
     setInvoices((prev) =>
       prev.map((i) => (i.id === id ? { ...i, ...patch } : i))
     );
-    startTransition(async () => {
+    try {
       const payload: Parameters<typeof updateInvoiceAction>[0] = { id };
       if (patch.clientName !== undefined) payload.clientName = patch.clientName;
       if (patch.clientEmail !== undefined) payload.clientEmail = patch.clientEmail;
@@ -171,15 +183,26 @@ export default function Invoices({
       if (patch.notes !== undefined) payload.notes = patch.notes;
       if (patch.dueDate !== undefined) payload.dueDate = new Date(patch.dueDate);
       await updateInvoiceAction(payload);
-    });
+    } catch (err) {
+      console.error("updateInvoiceAction failed:", err);
+      if (before) {
+        setInvoices((prev) => prev.map((i) => (i.id === id ? before : i)));
+      }
+      alert("Failed to update invoice. Check the browser console.");
+    }
   };
 
-  const onDelete = (id: number) => {
+  const onDelete = async (id: number) => {
     if (!confirm("Delete this invoice?")) return;
+    const before = invoices;
     setInvoices((prev) => prev.filter((i) => i.id !== id));
-    startTransition(async () => {
+    try {
       await deleteInvoiceAction({ id });
-    });
+    } catch (err) {
+      console.error("deleteInvoiceAction failed:", err);
+      setInvoices(before);
+      alert("Failed to delete invoice. Check the browser console.");
+    }
   };
 
   return (

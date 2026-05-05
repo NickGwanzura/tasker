@@ -196,17 +196,21 @@ export async function createQuoteAction(input: {
   total: number;
   notes: string;
 }) {
-  await db.insert(quotes).values({
-    clientName: input.clientName,
-    clientEmail: input.clientEmail,
-    clientAddress: input.clientAddress,
-    items: input.items,
-    subtotal: input.subtotal,
-    tax: input.tax,
-    total: input.total,
-    notes: input.notes,
-  });
+  const inserted = await db
+    .insert(quotes)
+    .values({
+      clientName: input.clientName,
+      clientEmail: input.clientEmail,
+      clientAddress: input.clientAddress,
+      items: input.items,
+      subtotal: input.subtotal,
+      tax: input.tax,
+      total: input.total,
+      notes: input.notes,
+    })
+    .returning();
   revalidatePath("/");
+  return { id: inserted[0]?.id, status: inserted[0]?.status ?? "draft" };
 }
 
 export async function updateQuoteAction(input: {
@@ -252,18 +256,22 @@ export async function createInvoiceAction(input: {
   dueDate: Date;
   notes: string;
 }) {
-  await db.insert(invoices).values({
-    clientName: input.clientName,
-    clientEmail: input.clientEmail,
-    clientAddress: input.clientAddress,
-    items: input.items,
-    subtotal: input.subtotal,
-    tax: input.tax,
-    total: input.total,
-    dueDate: input.dueDate,
-    notes: input.notes,
-  });
+  const inserted = await db
+    .insert(invoices)
+    .values({
+      clientName: input.clientName,
+      clientEmail: input.clientEmail,
+      clientAddress: input.clientAddress,
+      items: input.items,
+      subtotal: input.subtotal,
+      tax: input.tax,
+      total: input.total,
+      dueDate: input.dueDate,
+      notes: input.notes,
+    })
+    .returning();
   revalidatePath("/");
+  return { id: inserted[0]?.id, status: inserted[0]?.status ?? "unpaid" };
 }
 
 export async function updateInvoiceAction(input: {
@@ -307,14 +315,18 @@ export async function createReceiptAction(input: {
   transactionId: string;
   notes: string;
 }) {
-  await db.insert(receipts).values({
-    invoiceId: input.invoiceId,
-    amount: input.amount,
-    paymentMethod: input.paymentMethod,
-    transactionId: input.transactionId,
-    notes: input.notes,
-  });
+  const inserted = await db
+    .insert(receipts)
+    .values({
+      invoiceId: input.invoiceId,
+      amount: input.amount,
+      paymentMethod: input.paymentMethod,
+      transactionId: input.transactionId,
+      notes: input.notes,
+    })
+    .returning();
   revalidatePath("/");
+  return { id: inserted[0]?.id };
 }
 
 export async function updateReceiptAction(input: {
