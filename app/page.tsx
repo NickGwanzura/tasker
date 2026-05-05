@@ -5,7 +5,26 @@ export const dynamic = "force-dynamic";
 
 type ColKey = "todo" | "inprogress" | "inreview" | "done";
 
+const EMPTY_DATA = {
+  allProjects: [],
+  allTasks: [],
+  allDocs: [],
+  allActivities: [],
+  allPrompts: [],
+  appSettings: null as Awaited<ReturnType<typeof loadAllData>>["appSettings"] | null,
+  allQuotes: [],
+  allInvoices: [],
+  allReceipts: [],
+} as Awaited<ReturnType<typeof loadAllData>>;
+
 export default async function Page() {
+  let data: Awaited<ReturnType<typeof loadAllData>>;
+  try {
+    data = await loadAllData();
+  } catch (err) {
+    console.error("[page.tsx] loadAllData rejected:", err);
+    data = EMPTY_DATA;
+  }
   const {
     allProjects,
     allTasks,
@@ -16,10 +35,10 @@ export default async function Page() {
     allQuotes,
     allInvoices,
     allReceipts,
-  } = await loadAllData();
+  } = data;
 
   // Group children by project for the client component
-  const initialProjects = allProjects.map((p) => {
+  const initialProjects = safeMap(allProjects, "projects", (p) => {
     const projTasks = allTasks.filter((t) => t.projectId === p.id);
     const grouped: Record<ColKey, typeof projTasks> = {
       todo: [],
@@ -33,91 +52,92 @@ export default async function Page() {
     }
     return {
       id: p.id,
-      name: p.name,
-      desc: p.description,
-      color: p.color,
+      name: p.name ?? "",
+      desc: p.description ?? "",
+      color: p.color ?? "#3b5bdb",
       tasks: {
         todo: grouped.todo.map(toClientTask),
         inprogress: grouped.inprogress.map(toClientTask),
         inreview: grouped.inreview.map(toClientTask),
         done: grouped.done.map(toClientTask),
       },
-      docs: allDocs
-        .filter((d) => d.projectId === p.id)
-        .map((d) => ({
+      docs: safeMap(
+        allDocs.filter((d) => d.projectId === p.id),
+        "docs",
+        (d) => ({
           id: d.id,
-          title: d.title,
-          content: d.content,
+          title: d.title ?? "",
+          content: d.content ?? "",
           updated: relTime(d.updatedAt),
-        })),
-      activity: allActivities
-        .filter((a) => a.projectId === p.id)
-        .map((a) => ({
-          icon: a.icon,
-          text: a.text,
+        })
+      ),
+      activity: safeMap(
+        allActivities.filter((a) => a.projectId === p.id),
+        "activities",
+        (a) => ({
+          icon: a.icon ?? "📌",
+          text: a.text ?? "",
           time: relTime(a.createdAt),
-        })),
+        })
+      ),
     };
   });
 
-  const initialPrompts = allPrompts.map((p) => ({
-    title: p.title,
-    text: p.text,
-    category: p.category,
-    date: p.createdAt.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-    }),
+  const initialPrompts = safeMap(allPrompts, "prompts", (p) => ({
+    title: p.title ?? "",
+    text: p.text ?? "",
+    category: p.category ?? "Other",
+    date: shortDate(p.createdAt),
   }));
 
   const initialSettings = {
-    displayName: appSettings.displayName,
-    planLabel: appSettings.planLabel,
-    theme: appSettings.theme,
-    accentColor: appSettings.accentColor,
-    defaultPriority: appSettings.defaultPriority,
-    defaultColumn: appSettings.defaultColumn,
-    density: appSettings.density,
+    displayName: appSettings?.displayName ?? "Nicholas Gwanzura",
+    planLabel: appSettings?.planLabel ?? "Pro plan",
+    theme: appSettings?.theme ?? "light",
+    accentColor: appSettings?.accentColor ?? "#3b5bdb",
+    defaultPriority: appSettings?.defaultPriority ?? "Medium",
+    defaultColumn: appSettings?.defaultColumn ?? "todo",
+    density: appSettings?.density ?? "comfortable",
   };
 
-  const initialQuotes = allQuotes.map((q) => ({
+  const initialQuotes = safeMap(allQuotes, "quotes", (q) => ({
     id: q.id,
-    clientName: q.clientName,
-    clientEmail: q.clientEmail,
-    clientAddress: q.clientAddress,
+    clientName: q.clientName ?? "",
+    clientEmail: q.clientEmail ?? "",
+    clientAddress: q.clientAddress ?? "",
     items: Array.isArray(q.items) ? q.items : [],
-    subtotal: q.subtotal,
-    tax: q.tax,
-    total: q.total,
-    status: q.status,
-    notes: q.notes,
+    subtotal: q.subtotal ?? 0,
+    tax: q.tax ?? 0,
+    total: q.total ?? 0,
+    status: q.status ?? "draft",
+    notes: q.notes ?? "",
     createdAt: relTime(q.createdAt),
     updatedAt: relTime(q.updatedAt),
   }));
 
-  const initialInvoices = allInvoices.map((i) => ({
+  const initialInvoices = safeMap(allInvoices, "invoices", (i) => ({
     id: i.id,
-    clientName: i.clientName,
-    clientEmail: i.clientEmail,
-    clientAddress: i.clientAddress,
+    clientName: i.clientName ?? "",
+    clientEmail: i.clientEmail ?? "",
+    clientAddress: i.clientAddress ?? "",
     items: Array.isArray(i.items) ? i.items : [],
-    subtotal: i.subtotal,
-    tax: i.tax,
-    total: i.total,
-    status: i.status,
-    dueDate: i.dueDate ? new Date(i.dueDate).toISOString() : "",
-    notes: i.notes,
+    subtotal: i.subtotal ?? 0,
+    tax: i.tax ?? 0,
+    total: i.total ?? 0,
+    status: i.status ?? "unpaid",
+    dueDate: isoOrEmpty(i.dueDate),
+    notes: i.notes ?? "",
     createdAt: relTime(i.createdAt),
     updatedAt: relTime(i.updatedAt),
   }));
 
-  const initialReceipts = allReceipts.map((r) => ({
+  const initialReceipts = safeMap(allReceipts, "receipts", (r) => ({
     id: r.id,
     invoiceId: r.invoiceId,
-    amount: r.amount,
-    paymentMethod: r.paymentMethod,
-    transactionId: r.transactionId,
-    notes: r.notes,
+    amount: r.amount ?? 0,
+    paymentMethod: r.paymentMethod ?? "",
+    transactionId: r.transactionId ?? "",
+    notes: r.notes ?? "",
     createdAt: relTime(r.createdAt),
   }));
 
@@ -155,7 +175,35 @@ function toClientTask(t: {
   };
 }
 
-function relTime(d: Date): string {
+function safeMap<T, U>(
+  rows: T[],
+  label: string,
+  fn: (row: T) => U
+): U[] {
+  const out: U[] = [];
+  for (const row of rows) {
+    try {
+      out.push(fn(row));
+    } catch (err) {
+      console.error(`[page.tsx] dropped malformed ${label} row:`, err, row);
+    }
+  }
+  return out;
+}
+
+function toDate(value: unknown): Date | null {
+  if (!value) return null;
+  if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+  if (typeof value === "string" || typeof value === "number") {
+    const d = new Date(value);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+
+function relTime(value: unknown): string {
+  const d = toDate(value);
+  if (!d) return "";
   const diffMs = Date.now() - d.getTime();
   const sec = Math.floor(diffMs / 1000);
   if (sec < 60) return "Just now";
@@ -166,4 +214,15 @@ function relTime(d: Date): string {
   const day = Math.floor(hr / 24);
   if (day < 7) return `${day}d ago`;
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function shortDate(value: unknown): string {
+  const d = toDate(value);
+  if (!d) return "";
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function isoOrEmpty(value: unknown): string {
+  const d = toDate(value);
+  return d ? d.toISOString() : "";
 }
