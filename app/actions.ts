@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { eq, desc, asc } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 
-const { projects, tasks, docPages, activities, prompts, settings } = schema;
+const { projects, tasks, docPages, activities, prompts, settings, quotes, invoices, receipts } = schema;
 const SETTINGS_ID = "default";
 
 type ColKey = "todo" | "inprogress" | "inreview" | "done";
@@ -185,9 +185,164 @@ export async function addPromptAction(input: {
   revalidatePath("/");
 }
 
+// ---------- Quotes ----------
+export async function createQuoteAction(input: {
+  clientName: string;
+  clientEmail: string;
+  clientAddress: string;
+  items: Array<{ description: string; quantity: number; rate: number; amount: number }>;
+  subtotal: number;
+  tax: number;
+  total: number;
+  notes: string;
+}) {
+  await db.insert(quotes).values({
+    clientName: input.clientName,
+    clientEmail: input.clientEmail,
+    clientAddress: input.clientAddress,
+    items: input.items,
+    subtotal: input.subtotal,
+    tax: input.tax,
+    total: input.total,
+    notes: input.notes,
+  });
+  revalidatePath("/");
+}
+
+export async function updateQuoteAction(input: {
+  id: number;
+  clientName?: string;
+  clientEmail?: string;
+  clientAddress?: string;
+  items?: Array<{ description: string; quantity: number; rate: number; amount: number }>;
+  subtotal?: number;
+  tax?: number;
+  total?: number;
+  status?: string;
+  notes?: string;
+}) {
+  const patch: Record<string, unknown> = { updatedAt: new Date() };
+  if (input.clientName !== undefined) patch.clientName = input.clientName;
+  if (input.clientEmail !== undefined) patch.clientEmail = input.clientEmail;
+  if (input.clientAddress !== undefined) patch.clientAddress = input.clientAddress;
+  if (input.items !== undefined) patch.items = input.items;
+  if (input.subtotal !== undefined) patch.subtotal = input.subtotal;
+  if (input.tax !== undefined) patch.tax = input.tax;
+  if (input.total !== undefined) patch.total = input.total;
+  if (input.status !== undefined) patch.status = input.status;
+  if (input.notes !== undefined) patch.notes = input.notes;
+  await db.update(quotes).set(patch).where(eq(quotes.id, input.id));
+  revalidatePath("/");
+}
+
+export async function deleteQuoteAction(input: { id: number }) {
+  await db.delete(quotes).where(eq(quotes.id, input.id));
+  revalidatePath("/");
+}
+
+// ---------- Invoices ----------
+export async function createInvoiceAction(input: {
+  clientName: string;
+  clientEmail: string;
+  clientAddress: string;
+  items: Array<{ description: string; quantity: number; rate: number; amount: number }>;
+  subtotal: number;
+  tax: number;
+  total: number;
+  dueDate: Date;
+  notes: string;
+}) {
+  await db.insert(invoices).values({
+    clientName: input.clientName,
+    clientEmail: input.clientEmail,
+    clientAddress: input.clientAddress,
+    items: input.items,
+    subtotal: input.subtotal,
+    tax: input.tax,
+    total: input.total,
+    dueDate: input.dueDate,
+    notes: input.notes,
+  });
+  revalidatePath("/");
+}
+
+export async function updateInvoiceAction(input: {
+  id: number;
+  clientName?: string;
+  clientEmail?: string;
+  clientAddress?: string;
+  items?: Array<{ description: string; quantity: number; rate: number; amount: number }>;
+  subtotal?: number;
+  tax?: number;
+  total?: number;
+  status?: string;
+  dueDate?: Date;
+  notes?: string;
+}) {
+  const patch: Record<string, unknown> = { updatedAt: new Date() };
+  if (input.clientName !== undefined) patch.clientName = input.clientName;
+  if (input.clientEmail !== undefined) patch.clientEmail = input.clientEmail;
+  if (input.clientAddress !== undefined) patch.clientAddress = input.clientAddress;
+  if (input.items !== undefined) patch.items = input.items;
+  if (input.subtotal !== undefined) patch.subtotal = input.subtotal;
+  if (input.tax !== undefined) patch.tax = input.tax;
+  if (input.total !== undefined) patch.total = input.total;
+  if (input.status !== undefined) patch.status = input.status;
+  if (input.dueDate !== undefined) patch.dueDate = input.dueDate;
+  if (input.notes !== undefined) patch.notes = input.notes;
+  await db.update(invoices).set(patch).where(eq(invoices.id, input.id));
+  revalidatePath("/");
+}
+
+export async function deleteInvoiceAction(input: { id: number }) {
+  await db.delete(invoices).where(eq(invoices.id, input.id));
+  revalidatePath("/");
+}
+
+// ---------- Receipts ----------
+export async function createReceiptAction(input: {
+  invoiceId: number;
+  amount: number;
+  paymentMethod: string;
+  transactionId: string;
+  notes: string;
+}) {
+  await db.insert(receipts).values({
+    invoiceId: input.invoiceId,
+    amount: input.amount,
+    paymentMethod: input.paymentMethod,
+    transactionId: input.transactionId,
+    notes: input.notes,
+  });
+  revalidatePath("/");
+}
+
+export async function updateReceiptAction(input: {
+  id: number;
+  invoiceId?: number;
+  amount?: number;
+  paymentMethod?: string;
+  transactionId?: string;
+  notes?: string;
+}) {
+  const patch: Record<string, unknown> = {};
+  if (input.invoiceId !== undefined) patch.invoiceId = input.invoiceId;
+  if (input.amount !== undefined) patch.amount = input.amount;
+  if (input.paymentMethod !== undefined) patch.paymentMethod = input.paymentMethod;
+  if (input.transactionId !== undefined) patch.transactionId = input.transactionId;
+  if (input.notes !== undefined) patch.notes = input.notes;
+  await db.update(receipts).set(patch).where(eq(receipts.id, input.id));
+  revalidatePath("/");
+}
+
+export async function deleteReceiptAction(input: { id: number }) {
+  await db.delete(receipts).where(eq(receipts.id, input.id));
+  revalidatePath("/");
+}
+
 // ---------- Loaders ----------
 export async function loadAllData() {
-  const [allProjects, allTasks, allDocs, allActivities, allPrompts, settingsRow] =
+  const [allProjects, allTasks, allDocs, allActivities, allPrompts, settingsRow, allQuotes, allInvoices, allReceipts] =
     await Promise.all([
       db.select().from(projects).orderBy(asc(projects.createdAt)),
       db.select().from(tasks).orderBy(asc(tasks.position), asc(tasks.id)),
@@ -195,6 +350,9 @@ export async function loadAllData() {
       db.select().from(activities).orderBy(desc(activities.createdAt)),
       db.select().from(prompts).orderBy(desc(prompts.createdAt)),
       db.select().from(settings).where(eq(settings.id, SETTINGS_ID)).limit(1),
+      db.select().from(quotes).orderBy(desc(quotes.createdAt)),
+      db.select().from(invoices).orderBy(desc(invoices.createdAt)),
+      db.select().from(receipts).orderBy(desc(receipts.createdAt)),
     ]);
   let appSettings = settingsRow[0];
   if (!appSettings) {
@@ -211,6 +369,9 @@ export async function loadAllData() {
     allActivities,
     allPrompts,
     appSettings,
+    allQuotes,
+    allInvoices,
+    allReceipts,
   };
 }
 
@@ -239,7 +400,7 @@ export async function updateSettingsAction(input: {
 
 // ---------- Data ops ----------
 export async function exportAllDataAction() {
-  const [allProjects, allTasks, allDocs, allActivities, allPrompts, settingsRow] =
+  const [allProjects, allTasks, allDocs, allActivities, allPrompts, settingsRow, allQuotes, allInvoices, allReceipts] =
     await Promise.all([
       db.select().from(projects),
       db.select().from(tasks),
@@ -247,6 +408,9 @@ export async function exportAllDataAction() {
       db.select().from(activities),
       db.select().from(prompts),
       db.select().from(settings).where(eq(settings.id, SETTINGS_ID)).limit(1),
+      db.select().from(quotes),
+      db.select().from(invoices),
+      db.select().from(receipts),
     ]);
   return {
     exportedAt: new Date().toISOString(),
@@ -257,11 +421,17 @@ export async function exportAllDataAction() {
     activities: allActivities,
     prompts: allPrompts,
     settings: settingsRow[0] ?? null,
+    quotes: allQuotes,
+    invoices: allInvoices,
+    receipts: allReceipts,
   };
 }
 
 export async function wipeAllDataAction() {
   // Cascade FKs handle children, but be explicit for safety + activities/prompts cleanup
+  await db.delete(receipts);
+  await db.delete(invoices);
+  await db.delete(quotes);
   await db.delete(activities);
   await db.delete(tasks);
   await db.delete(docPages);

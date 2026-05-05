@@ -26,6 +26,9 @@ import {
   updateTaskAction,
   wipeAllDataAction,
 } from "./actions";
+import Quotes from "./Quotes";
+import Invoices from "./Invoices";
+import Receipts from "./Receipts";
 import {
   DndContext,
   type DragEndEvent,
@@ -93,6 +96,47 @@ interface AppSettings {
   density: string;
 }
 
+interface Quote {
+  id: number;
+  clientName: string;
+  clientEmail: string;
+  clientAddress: string;
+  items: Array<{ description: string; quantity: number; rate: number; amount: number }>;
+  subtotal: number;
+  tax: number;
+  total: number;
+  status: string;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface Invoice {
+  id: number;
+  clientName: string;
+  clientEmail: string;
+  clientAddress: string;
+  items: Array<{ description: string; quantity: number; rate: number; amount: number }>;
+  subtotal: number;
+  tax: number;
+  total: number;
+  status: string;
+  dueDate: string;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface Receipt {
+  id: number;
+  invoiceId: number;
+  amount: number;
+  paymentMethod: string;
+  transactionId: string;
+  notes: string;
+  createdAt: string;
+}
+
 type PageKey =
   | "tasks"
   | "docs"
@@ -101,7 +145,10 @@ type PageKey =
   | "security-overview"
   | "audit-logs"
   | "calendar"
-  | "settings";
+  | "settings"
+  | "quotes"
+  | "invoices"
+  | "receipts";
 
 // ---------- Constants ----------
 const SC: Record<ColKey, string> = {
@@ -171,6 +218,9 @@ const PT: Record<PageKey, string> = {
   "audit-logs": "Audit Logs",
   calendar: "Calendar",
   settings: "Settings",
+  quotes: "Quotes",
+  invoices: "Invoices",
+  receipts: "Receipts",
 };
 
 function deriveInitials(name: string): string {
@@ -287,12 +337,18 @@ interface TaskManagerProps {
   initialProjects: Project[];
   initialPrompts: Prompt[];
   initialSettings: AppSettings;
+  initialQuotes: Quote[];
+  initialInvoices: Invoice[];
+  initialReceipts: Receipt[];
 }
 
 export default function TaskManager({
   initialProjects,
   initialPrompts,
   initialSettings,
+  initialQuotes,
+  initialInvoices,
+  initialReceipts,
 }: TaskManagerProps) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -935,6 +991,54 @@ export default function TaskManager({
           </div>
         </div>
 
+        <div className="s-sec">
+          <div className="s-lbl">Finance</div>
+          <div
+            className={"ni" + (page === "quotes" ? " active" : "")}
+            onClick={() => navTo("quotes")}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="9" y1="13" x2="15" y2="13" />
+              <line x1="9" y1="17" x2="13" y2="17" />
+            </svg>
+            Quotes
+            {initialQuotes.length > 0 && (
+              <span className="n-badge">{initialQuotes.length}</span>
+            )}
+          </div>
+          <div
+            className={"ni" + (page === "invoices" ? " active" : "")}
+            onClick={() => navTo("invoices")}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 4h16v16H4z" />
+              <line x1="8" y1="9" x2="16" y2="9" />
+              <line x1="8" y1="13" x2="16" y2="13" />
+              <line x1="8" y1="17" x2="12" y2="17" />
+            </svg>
+            Invoices
+            {initialInvoices.length > 0 && (
+              <span className="n-badge">{initialInvoices.length}</span>
+            )}
+          </div>
+          <div
+            className={"ni" + (page === "receipts" ? " active" : "")}
+            onClick={() => navTo("receipts")}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 2v20l3-2 3 2 3-2 3 2 3-2V2l-3 2-3-2-3 2-3-2-3 2z" />
+              <line x1="9" y1="9" x2="15" y2="9" />
+              <line x1="9" y1="13" x2="15" y2="13" />
+            </svg>
+            Receipts
+            {initialReceipts.length > 0 && (
+              <span className="n-badge">{initialReceipts.length}</span>
+            )}
+          </div>
+        </div>
+
         <SecuritySection
           openSecFolders={openSecFolders}
           setOpenSecFolders={setOpenSecFolders}
@@ -1082,6 +1186,21 @@ export default function TaskManager({
           <CalendarView
             projects={projects}
             onOpenProject={(id) => switchProj(id)}
+          />
+        </div>
+
+        <div className={"page" + (page === "quotes" ? " active" : "")}>
+          <Quotes initialQuotes={initialQuotes} />
+        </div>
+
+        <div className={"page" + (page === "invoices" ? " active" : "")}>
+          <Invoices initialInvoices={initialInvoices} />
+        </div>
+
+        <div className={"page" + (page === "receipts" ? " active" : "")}>
+          <Receipts
+            initialReceipts={initialReceipts}
+            invoices={initialInvoices}
           />
         </div>
 

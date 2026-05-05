@@ -76,6 +76,47 @@ export const settings = taskerSchema.table("settings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const quotes = taskerSchema.table("quotes", {
+  id: serial("id").primaryKey(),
+  clientName: text("client_name").notNull(),
+  clientEmail: text("client_email").notNull(),
+  clientAddress: text("client_address").notNull().default(""),
+  items: jsonb("items").$type<Array<{ description: string; quantity: number; rate: number; amount: number }>>().notNull().default([]),
+  subtotal: integer("subtotal").notNull().default(0),
+  tax: integer("tax").notNull().default(0),
+  total: integer("total").notNull().default(0),
+  status: varchar("status", { length: 16 }).notNull().default("draft"), // draft, sent, accepted, rejected
+  notes: text("notes").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const invoices = taskerSchema.table("invoices", {
+  id: serial("id").primaryKey(),
+  clientName: text("client_name").notNull(),
+  clientEmail: text("client_email").notNull(),
+  clientAddress: text("client_address").notNull().default(""),
+  items: jsonb("items").$type<Array<{ description: string; quantity: number; rate: number; amount: number }>>().notNull().default([]),
+  subtotal: integer("subtotal").notNull().default(0),
+  tax: integer("tax").notNull().default(0),
+  total: integer("total").notNull().default(0),
+  status: varchar("status", { length: 16 }).notNull().default("unpaid"), // unpaid, paid, overdue
+  dueDate: timestamp("due_date", { withTimezone: true }).notNull(),
+  notes: text("notes").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const receipts = taskerSchema.table("receipts", {
+  id: serial("id").primaryKey(),
+  invoiceId: integer("invoice_id").notNull().references(() => invoices.id, { onDelete: "cascade" }),
+  amount: integer("amount").notNull(),
+  paymentMethod: varchar("payment_method", { length: 32 }).notNull(),
+  transactionId: text("transaction_id").notNull().default(""),
+  notes: text("notes").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
 export type Task = typeof tasks.$inferSelect;
@@ -88,3 +129,9 @@ export type Prompt = typeof prompts.$inferSelect;
 export type NewPrompt = typeof prompts.$inferInsert;
 export type Settings = typeof settings.$inferSelect;
 export type NewSettings = typeof settings.$inferInsert;
+export type Quote = typeof quotes.$inferSelect;
+export type NewQuote = typeof quotes.$inferInsert;
+export type Invoice = typeof invoices.$inferSelect;
+export type NewInvoice = typeof invoices.$inferInsert;
+export type Receipt = typeof receipts.$inferSelect;
+export type NewReceipt = typeof receipts.$inferInsert;

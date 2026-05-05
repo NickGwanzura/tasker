@@ -13,6 +13,9 @@ export default async function Page() {
     allActivities,
     allPrompts,
     appSettings,
+    allQuotes,
+    allInvoices,
+    allReceipts,
   } = await loadAllData();
 
   // Group children by project for the client component
@@ -77,11 +80,55 @@ export default async function Page() {
     density: appSettings.density,
   };
 
+  const initialQuotes = allQuotes.map((q) => ({
+    id: q.id,
+    clientName: q.clientName,
+    clientEmail: q.clientEmail,
+    clientAddress: q.clientAddress,
+    items: q.items,
+    subtotal: q.subtotal,
+    tax: q.tax,
+    total: q.total,
+    status: q.status,
+    notes: q.notes,
+    createdAt: relTime(q.createdAt),
+    updatedAt: relTime(q.updatedAt),
+  }));
+
+  const initialInvoices = allInvoices.map((i) => ({
+    id: i.id,
+    clientName: i.clientName,
+    clientEmail: i.clientEmail,
+    clientAddress: i.clientAddress,
+    items: i.items,
+    subtotal: i.subtotal,
+    tax: i.tax,
+    total: i.total,
+    status: i.status,
+    dueDate: i.dueDate.toISOString(),
+    notes: i.notes,
+    createdAt: relTime(i.createdAt),
+    updatedAt: relTime(i.updatedAt),
+  }));
+
+  const initialReceipts = allReceipts.map((r) => ({
+    id: r.id,
+    invoiceId: r.invoiceId,
+    amount: r.amount,
+    paymentMethod: r.paymentMethod,
+    transactionId: r.transactionId,
+    notes: r.notes,
+    createdAt: relTime(r.createdAt),
+  }));
+
   return (
     <TaskManager
       initialProjects={initialProjects}
       initialPrompts={initialPrompts}
       initialSettings={initialSettings}
+      initialQuotes={initialQuotes}
+      initialInvoices={initialInvoices}
+      initialReceipts={initialReceipts}
     />
   );
 }
