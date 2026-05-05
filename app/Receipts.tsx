@@ -91,21 +91,25 @@ export default function Receipts({
   }
 
   const onCreate = async (data: Omit<Receipt, "id" | "createdAt">) => {
-    setShowForm(false);
     const tempId = -Date.now();
     const optimistic: Receipt = { ...data, id: tempId, createdAt: "Just now" };
     setReceipts((prev) => [optimistic, ...prev]);
+    if (methodFilter !== "all" && methodFilter !== data.paymentMethod) {
+      setMethodFilter("all");
+    }
     try {
       const result = await createReceiptAction(data);
       if (result?.id) {
         setReceipts((prev) =>
-          prev.map((r) => (r.id === tempId ? { ...optimistic, id: result.id! } : r))
+          prev.map((r) =>
+            r.id === tempId ? { ...optimistic, id: result.id! } : r
+          )
         );
       }
     } catch (err) {
       console.error("createReceiptAction failed:", err);
       setReceipts((prev) => prev.filter((r) => r.id !== tempId));
-      alert("Failed to create receipt. Check the browser console.");
+      throw err;
     }
   };
 
@@ -118,7 +122,7 @@ export default function Receipts({
     } catch (err) {
       console.error("deleteReceiptAction failed:", err);
       setReceipts(before);
-      alert("Failed to delete receipt. Check the browser console.");
+      alert("Could not delete the receipt. See the browser console.");
     }
   };
 
@@ -286,6 +290,7 @@ export default function Receipts({
         <ReceiptFormModal
           invoices={invoices}
           onSubmit={onCreate}
+          onSuccess={() => setShowForm(false)}
           onCancel={() => setShowForm(false)}
         />
       )}
@@ -296,12 +301,16 @@ export default function Receipts({
 function ReceiptFormModal({
   invoices,
   onSubmit,
+  onSuccess,
   onCancel,
 }: {
   invoices: Invoice[];
-  onSubmit: (data: Omit<Receipt, "id" | "createdAt">) => void;
+  onSubmit: (data: Omit<Receipt, "id" | "createdAt">) => void | Promise<void>;
+  onSuccess: () => void;
   onCancel: () => void;
 }) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const unpaid = invoices.filter((i) => i.status !== "paid");
   const list = unpaid.length > 0 ? unpaid : invoices;
   const [invoiceId, setInvoiceId] = useState<number>(list[0]?.id ?? 0);
@@ -317,15 +326,31 @@ function ReceiptFormModal({
     if (inv) setAmount(inv.total);
   };
 
-  const submit = () => {
-    if (!invoiceId || amount <= 0 || !paymentMethod) return;
-    onSubmit({
-      invoiceId,
-      amount: Math.round(amount),
-      paymentMethod,
-      transactionId: transactionId.trim(),
-      notes: notes.trim(),
-    });
+  const submit = async () => {
+    if (pending) return;
+    if (!invoiceId || amount <= 0 || !paymentMethod) {
+      setError("Pick an invoice, enter an amount, and choose a method.");
+      return;
+    }
+    setPending(true);
+    setError(null);
+    try {
+      await onSubmit({
+        invoiceId,
+        amount: Math.round(amount),
+        paymentMethod,
+        transactionId: transactionId.trim(),
+        notes: notes.trim(),
+      });
+      onSuccess();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Could not save the receipt. Please try again."
+      );
+      setPending(false);
+    }
   };
 
   return (
@@ -419,17 +444,25 @@ function ReceiptFormModal({
           />
         </div>
 
+        {error && <div className="fin-form-error">{error}</div>}
+
         <div className="m-acts">
-          <button type="button" className="btn bg" onClick={onCancel}>
+          <button
+            type="button"
+            className="btn bg"
+            onClick={onCancel}
+            disabled={pending}
+          >
             Cancel
           </button>
           <button
             type="button"
             className="btn bp"
             onClick={submit}
-            disabled={!invoiceId || amount <= 0}
+            disabled={pending || !invoiceId || amount <= 0}
           >
-            Record receipt
+            {pending && <span className="fin-spinner" aria-hidden="true" />}
+            {pending ? "Recording…" : "Record receipt"}
           </button>
         </div>
       </div>

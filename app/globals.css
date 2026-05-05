@@ -104,6 +104,8 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);display:flex;he
 .tab:hover{background:var(--s2);color:var(--text);}
 .tab.active{background:var(--al);color:var(--accent);font-weight:600;}
 .btn{display:flex;align-items:center;gap:5px;padding:7px 13px;border-radius:8px;border:none;cursor:pointer;font-family:var(--f);font-size:12.5px;font-weight:600;transition:all .15s;white-space:nowrap;flex-shrink:0;}
+.btn:disabled{opacity:.55;cursor:not-allowed;box-shadow:none;}
+.btn:disabled:hover{box-shadow:none;}
 .bp{background:var(--accent);color:#fff;}
 .bp:hover{background:var(--ad);box-shadow:0 4px 14px rgba(59,91,219,.28);}
 .bg{background:var(--s2);color:var(--text);border:1px solid var(--border);}
@@ -413,6 +415,10 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);display:flex;he
 .fin-tot-lbl{color:var(--muted);font-weight:600;}
 .fin-tot-val{font-weight:700;color:var(--text);font-variant-numeric:tabular-nums;}
 .fin-tax-input{width:80px;text-align:right;}
+.fin-form-error{margin-top:12px;padding:10px 12px;background:var(--rl);border:1px solid var(--red);border-radius:8px;color:var(--red);font-size:12px;font-weight:600;line-height:1.4;display:flex;align-items:flex-start;gap:8px;}
+.fin-form-error::before{content:"⚠";flex-shrink:0;}
+.fin-spinner{display:inline-block;width:12px;height:12px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:fin-spin .7s linear infinite;}
+@keyframes fin-spin{to{transform:rotate(360deg);}}
 
 @media(max-width:768px){
   .fin{padding:14px 14px 90px;gap:12px;}

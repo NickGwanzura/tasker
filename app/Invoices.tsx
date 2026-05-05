@@ -133,7 +133,6 @@ export default function Invoices({
   const onCreate = async (
     data: Omit<Invoice, "id" | "createdAt" | "updatedAt" | "status">
   ) => {
-    setShowForm(false);
     const tempId = -Date.now();
     const optimistic: Invoice = {
       ...data,
@@ -143,6 +142,7 @@ export default function Invoices({
       updatedAt: "Just now",
     };
     setInvoices((prev) => [optimistic, ...prev]);
+    if (statusFilter !== "all") setStatusFilter("all");
     try {
       const result = await createInvoiceAction({
         ...data,
@@ -151,16 +151,16 @@ export default function Invoices({
       if (result?.id) {
         setInvoices((prev) =>
           prev.map((i) =>
-            i.id === tempId ? { ...optimistic, id: result.id!, status: result.status } : i
+            i.id === tempId
+              ? { ...optimistic, id: result.id!, status: result.status }
+              : i
           )
         );
       }
     } catch (err) {
       console.error("createInvoiceAction failed:", err);
       setInvoices((prev) => prev.filter((i) => i.id !== tempId));
-      alert(
-        "Failed to create invoice. Check the browser console for the error message."
-      );
+      throw err;
     }
   };
 
@@ -188,7 +188,7 @@ export default function Invoices({
       if (before) {
         setInvoices((prev) => prev.map((i) => (i.id === id ? before : i)));
       }
-      alert("Failed to update invoice. Check the browser console.");
+      throw err;
     }
   };
 
@@ -377,16 +377,15 @@ export default function Invoices({
       {showForm && (
         <InvoiceFormModal
           onSubmit={onCreate}
+          onSuccess={() => setShowForm(false)}
           onCancel={() => setShowForm(false)}
         />
       )}
       {editing && (
         <InvoiceFormModal
           initial={editing}
-          onSubmit={(data) => {
-            onUpdate(editing.id, data);
-            setEditing(null);
-          }}
+          onSubmit={(data) => onUpdate(editing.id, data)}
+          onSuccess={() => setEditing(null)}
           onCancel={() => setEditing(null)}
         />
       )}
@@ -397,14 +396,18 @@ export default function Invoices({
 function InvoiceFormModal({
   initial,
   onSubmit,
+  onSuccess,
   onCancel,
 }: {
   initial?: Invoice;
   onSubmit: (
     data: Omit<Invoice, "id" | "createdAt" | "updatedAt" | "status">
-  ) => void;
+  ) => void | Promise<void>;
+  onSuccess: () => void;
   onCancel: () => void;
 }) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [clientName, setClientName] = useState(initial?.clientName ?? "");
   const [clientEmail, setClientEmail] = useState(initial?.clientEmail ?? "");
   const [clientAddress, setClientAddress] = useState(
@@ -440,19 +443,35 @@ function InvoiceFormModal({
   const removeItem = (idx: number) =>
     setItems((p) => (p.length > 1 ? p.filter((_, i) => i !== idx) : p));
 
-  const submit = () => {
-    if (!clientName.trim() || !clientEmail.trim() || !dueDate) return;
-    onSubmit({
-      clientName: clientName.trim(),
-      clientEmail: clientEmail.trim(),
-      clientAddress: clientAddress.trim(),
-      items: items.filter((it) => it.description.trim() !== ""),
-      subtotal: totals.subtotal,
-      tax: totals.tax,
-      total: totals.total,
-      dueDate: new Date(dueDate).toISOString(),
-      notes: notes.trim(),
-    });
+  const submit = async () => {
+    if (pending) return;
+    if (!clientName.trim() || !clientEmail.trim() || !dueDate) {
+      setError("Fill in client name, email and due date.");
+      return;
+    }
+    setPending(true);
+    setError(null);
+    try {
+      await onSubmit({
+        clientName: clientName.trim(),
+        clientEmail: clientEmail.trim(),
+        clientAddress: clientAddress.trim(),
+        items: items.filter((it) => it.description.trim() !== ""),
+        subtotal: totals.subtotal,
+        tax: totals.tax,
+        total: totals.total,
+        dueDate: new Date(dueDate).toISOString(),
+        notes: notes.trim(),
+      });
+      onSuccess();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Could not save the invoice. Please try again."
+      );
+      setPending(false);
+    }
   };
 
   return (
@@ -607,17 +626,36 @@ function InvoiceFormModal({
           </div>
         </div>
 
+        {error && <div className="fin-form-error">{error}</div>}
+
         <div className="m-acts">
-          <button type="button" className="btn bg" onClick={onCancel}>
+          <button
+            type="button"
+            className="btn bg"
+            onClick={onCancel}
+            disabled={pending}
+          >
             Cancel
           </button>
           <button
             type="button"
             className="btn bp"
             onClick={submit}
-            disabled={!clientName.trim() || !clientEmail.trim() || !dueDate}
+            disabled={
+              pending ||
+              !clientName.trim() ||
+              !clientEmail.trim() ||
+              !dueDate
+            }
           >
-            {initial ? "Save changes" : "Create invoice"}
+            {pending && <span className="fin-spinner" aria-hidden="true" />}
+            {pending
+              ? initial
+                ? "Saving…"
+                : "Creating…"
+              : initial
+              ? "Save changes"
+              : "Create invoice"}
           </button>
         </div>
       </div>

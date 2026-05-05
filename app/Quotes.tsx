@@ -89,7 +89,6 @@ export default function Quotes({ initialQuotes }: { initialQuotes: Quote[] }) {
   const onCreate = async (
     data: Omit<Quote, "id" | "createdAt" | "updatedAt" | "status">
   ) => {
-    setShowForm(false);
     const tempId = -Date.now();
     const optimistic: Quote = {
       ...data,
@@ -99,19 +98,22 @@ export default function Quotes({ initialQuotes }: { initialQuotes: Quote[] }) {
       updatedAt: "Just now",
     };
     setQuotes((prev) => [optimistic, ...prev]);
+    if (statusFilter !== "all") setStatusFilter("all");
     try {
       const result = await createQuoteAction(data);
       if (result?.id) {
         setQuotes((prev) =>
           prev.map((q) =>
-            q.id === tempId ? { ...optimistic, id: result.id!, status: result.status } : q
+            q.id === tempId
+              ? { ...optimistic, id: result.id!, status: result.status }
+              : q
           )
         );
       }
     } catch (err) {
       console.error("createQuoteAction failed:", err);
       setQuotes((prev) => prev.filter((q) => q.id !== tempId));
-      alert("Failed to create quote. Check the browser console.");
+      throw err;
     }
   };
 
@@ -125,7 +127,7 @@ export default function Quotes({ initialQuotes }: { initialQuotes: Quote[] }) {
       if (before) {
         setQuotes((prev) => prev.map((q) => (q.id === id ? before : q)));
       }
-      alert("Failed to update quote. Check the browser console.");
+      throw err;
     }
   };
 
@@ -297,16 +299,15 @@ export default function Quotes({ initialQuotes }: { initialQuotes: Quote[] }) {
       {showForm && (
         <QuoteFormModal
           onSubmit={onCreate}
+          onSuccess={() => setShowForm(false)}
           onCancel={() => setShowForm(false)}
         />
       )}
       {editing && (
         <QuoteFormModal
           initial={editing}
-          onSubmit={(data) => {
-            onUpdate(editing.id, data);
-            setEditing(null);
-          }}
+          onSubmit={(data) => onUpdate(editing.id, data)}
+          onSuccess={() => setEditing(null)}
           onCancel={() => setEditing(null)}
         />
       )}
@@ -317,14 +318,18 @@ export default function Quotes({ initialQuotes }: { initialQuotes: Quote[] }) {
 function QuoteFormModal({
   initial,
   onSubmit,
+  onSuccess,
   onCancel,
 }: {
   initial?: Quote;
   onSubmit: (
     data: Omit<Quote, "id" | "createdAt" | "updatedAt" | "status">
-  ) => void;
+  ) => void | Promise<void>;
+  onSuccess: () => void;
   onCancel: () => void;
 }) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [clientName, setClientName] = useState(initial?.clientName ?? "");
   const [clientEmail, setClientEmail] = useState(initial?.clientEmail ?? "");
   const [clientAddress, setClientAddress] = useState(
@@ -356,18 +361,34 @@ function QuoteFormModal({
   const removeItem = (idx: number) =>
     setItems((p) => (p.length > 1 ? p.filter((_, i) => i !== idx) : p));
 
-  const submit = () => {
-    if (!clientName.trim() || !clientEmail.trim()) return;
-    onSubmit({
-      clientName: clientName.trim(),
-      clientEmail: clientEmail.trim(),
-      clientAddress: clientAddress.trim(),
-      items: items.filter((it) => it.description.trim() !== ""),
-      subtotal: totals.subtotal,
-      tax: totals.tax,
-      total: totals.total,
-      notes: notes.trim(),
-    });
+  const submit = async () => {
+    if (pending) return;
+    if (!clientName.trim() || !clientEmail.trim()) {
+      setError("Fill in client name and email.");
+      return;
+    }
+    setPending(true);
+    setError(null);
+    try {
+      await onSubmit({
+        clientName: clientName.trim(),
+        clientEmail: clientEmail.trim(),
+        clientAddress: clientAddress.trim(),
+        items: items.filter((it) => it.description.trim() !== ""),
+        subtotal: totals.subtotal,
+        tax: totals.tax,
+        total: totals.total,
+        notes: notes.trim(),
+      });
+      onSuccess();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Could not save the quote. Please try again."
+      );
+      setPending(false);
+    }
   };
 
   return (
@@ -510,17 +531,31 @@ function QuoteFormModal({
           </div>
         </div>
 
+        {error && <div className="fin-form-error">{error}</div>}
+
         <div className="m-acts">
-          <button type="button" className="btn bg" onClick={onCancel}>
+          <button
+            type="button"
+            className="btn bg"
+            onClick={onCancel}
+            disabled={pending}
+          >
             Cancel
           </button>
           <button
             type="button"
             className="btn bp"
             onClick={submit}
-            disabled={!clientName.trim() || !clientEmail.trim()}
+            disabled={pending || !clientName.trim() || !clientEmail.trim()}
           >
-            {initial ? "Save changes" : "Create quote"}
+            {pending && <span className="fin-spinner" aria-hidden="true" />}
+            {pending
+              ? initial
+                ? "Saving…"
+                : "Creating…"
+              : initial
+              ? "Save changes"
+              : "Create quote"}
           </button>
         </div>
       </div>
