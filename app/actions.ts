@@ -341,26 +341,56 @@ export async function deleteReceiptAction(input: { id: number }) {
 }
 
 // ---------- Loaders ----------
+async function safeSelect<T>(label: string, fn: () => Promise<T[]>): Promise<T[]> {
+  try {
+    return await fn();
+  } catch (err) {
+    // Most common cause: the table has not been migrated in this environment yet.
+    // Don't crash the whole page — log and return empty.
+    console.error(`[loadAllData] ${label} query failed:`, err);
+    return [];
+  }
+}
+
 export async function loadAllData() {
   const [allProjects, allTasks, allDocs, allActivities, allPrompts, settingsRow, allQuotes, allInvoices, allReceipts] =
     await Promise.all([
-      db.select().from(projects).orderBy(asc(projects.createdAt)),
-      db.select().from(tasks).orderBy(asc(tasks.position), asc(tasks.id)),
-      db.select().from(docPages).orderBy(asc(docPages.createdAt)),
-      db.select().from(activities).orderBy(desc(activities.createdAt)),
-      db.select().from(prompts).orderBy(desc(prompts.createdAt)),
-      db.select().from(settings).where(eq(settings.id, SETTINGS_ID)).limit(1),
-      db.select().from(quotes).orderBy(desc(quotes.createdAt)),
-      db.select().from(invoices).orderBy(desc(invoices.createdAt)),
-      db.select().from(receipts).orderBy(desc(receipts.createdAt)),
+      safeSelect("projects", () => db.select().from(projects).orderBy(asc(projects.createdAt))),
+      safeSelect("tasks", () => db.select().from(tasks).orderBy(asc(tasks.position), asc(tasks.id))),
+      safeSelect("docPages", () => db.select().from(docPages).orderBy(asc(docPages.createdAt))),
+      safeSelect("activities", () => db.select().from(activities).orderBy(desc(activities.createdAt))),
+      safeSelect("prompts", () => db.select().from(prompts).orderBy(desc(prompts.createdAt))),
+      safeSelect("settings", () =>
+        db.select().from(settings).where(eq(settings.id, SETTINGS_ID)).limit(1)
+      ),
+      safeSelect("quotes", () => db.select().from(quotes).orderBy(desc(quotes.createdAt))),
+      safeSelect("invoices", () => db.select().from(invoices).orderBy(desc(invoices.createdAt))),
+      safeSelect("receipts", () => db.select().from(receipts).orderBy(desc(receipts.createdAt))),
     ]);
   let appSettings = settingsRow[0];
   if (!appSettings) {
-    const inserted = await db
-      .insert(settings)
-      .values({ id: SETTINGS_ID })
-      .returning();
-    appSettings = inserted[0];
+    try {
+      const inserted = await db
+        .insert(settings)
+        .values({ id: SETTINGS_ID })
+        .returning();
+      appSettings = inserted[0];
+    } catch (err) {
+      console.error("[loadAllData] settings seed failed:", err);
+    }
+  }
+  if (!appSettings) {
+    appSettings = {
+      id: SETTINGS_ID,
+      displayName: "Nicholas Gwanzura",
+      planLabel: "Pro plan",
+      theme: "light",
+      accentColor: "#3b5bdb",
+      defaultPriority: "Medium",
+      defaultColumn: "todo",
+      density: "comfortable",
+      updatedAt: new Date(),
+    } as typeof settings.$inferSelect;
   }
   return {
     allProjects,
