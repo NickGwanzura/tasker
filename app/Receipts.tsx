@@ -459,7 +459,7 @@ function ReceiptFormModal({
             type="button"
             className="btn bp"
             onClick={submit}
-            disabled={pending || !invoiceId || amount <= 0}
+            disabled={pending}
           >
             {pending && <span className="fin-spinner" aria-hidden="true" />}
             {pending ? "Recording…" : "Record receipt"}

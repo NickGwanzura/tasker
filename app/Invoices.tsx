@@ -641,12 +641,7 @@ function InvoiceFormModal({
             type="button"
             className="btn bp"
             onClick={submit}
-            disabled={
-              pending ||
-              !clientName.trim() ||
-              !clientEmail.trim() ||
-              !dueDate
-            }
+            disabled={pending}
           >
             {pending && <span className="fin-spinner" aria-hidden="true" />}
             {pending

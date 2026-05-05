@@ -546,7 +546,7 @@ function QuoteFormModal({
             type="button"
             className="btn bp"
             onClick={submit}
-            disabled={pending || !clientName.trim() || !clientEmail.trim()}
+            disabled={pending}
           >
             {pending && <span className="fin-spinner" aria-hidden="true" />}
             {pending
