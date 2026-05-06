@@ -1143,6 +1143,7 @@ export default function TaskManager({
             openProjectModal={() => openModal("mProject")}
             onOpenDetail={openTaskDetail}
             onMoveTask={moveTask}
+            view={tabActive}
           />
         </div>
 
@@ -1751,6 +1752,7 @@ function TasksView({
   openProjectModal,
   onOpenDetail,
   onMoveTask,
+  view,
 }: {
   projects: Project[];
   activeProjId: string | null;
@@ -1759,6 +1761,7 @@ function TasksView({
   openProjectModal: () => void;
   onOpenDetail: (task: Task, projectId: string, col: ColKey) => void;
   onMoveTask: (taskId: number, toProjectId: string, toCol: ColKey) => void;
+  view: string;
 }) {
   const scopedProjects = useMemo(
     () =>
@@ -2022,105 +2025,317 @@ function TasksView({
         )}
       </div>
 
-      <DndContext
-        sensors={sensors}
-        onDragStart={onDragStart}
-        onDragEnd={onDragEnd}
-        onDragCancel={onDragCancel}
-      >
-        <div style={{ flex: 1, overflow: "auto", padding: "0 4px" }}>
-          {filteredProjects.map((project) => {
-            const projTotal = COLS.reduce(
-              (s, c) => s + (project.tasks[c.key] || []).length,
-              0
-            );
-            return (
-              <div key={project.id} style={{ marginBottom: 24 }}>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    padding: "10px 4px 8px",
-                    borderBottom: "1px solid var(--border, #e5e7eb)",
-                    marginBottom: 10,
-                    position: "sticky",
-                    top: 0,
-                    background: "var(--bg, #fff)",
-                    zIndex: 1,
-                  }}
-                >
-                  <span
-                    style={{
-                      width: 10,
-                      height: 10,
-                      borderRadius: "50%",
-                      background: project.color,
-                      display: "inline-block",
-                      flexShrink: 0,
-                    }}
-                  />
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>
-                    {project.name}
-                  </div>
+      {view === "Lists" ? (
+        <ListsView
+          projects={filteredProjects}
+          onOpenDetail={onOpenDetail}
+        />
+      ) : view === "Timeline" ? (
+        <TimelineView
+          projects={filteredProjects}
+          onOpenDetail={onOpenDetail}
+        />
+      ) : (
+        <DndContext
+          sensors={sensors}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          onDragCancel={onDragCancel}
+        >
+          <div style={{ flex: 1, overflow: "auto", padding: "0 4px" }}>
+            {filteredProjects.map((project) => {
+              const projTotal = COLS.reduce(
+                (s, c) => s + (project.tasks[c.key] || []).length,
+                0
+              );
+              return (
+                <div key={project.id} style={{ marginBottom: 24 }}>
                   <div
                     style={{
-                      fontSize: 11.5,
-                      color: "var(--muted2)",
-                      background: "var(--chip-bg, #f1f5f9)",
-                      padding: "2px 8px",
-                      borderRadius: 10,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      padding: "10px 4px 8px",
+                      borderBottom: "1px solid var(--border, #e5e7eb)",
+                      marginBottom: 10,
+                      position: "sticky",
+                      top: 0,
+                      background: "var(--bg, #fff)",
+                      zIndex: 1,
                     }}
                   >
-                    {projTotal} {projTotal === 1 ? "task" : "tasks"}
+                    <span
+                      style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: "50%",
+                        background: project.color,
+                        display: "inline-block",
+                        flexShrink: 0,
+                      }}
+                    />
+                    <div style={{ fontWeight: 600, fontSize: 14 }}>
+                      {project.name}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 11.5,
+                        color: "var(--muted2)",
+                        background: "var(--chip-bg, #f1f5f9)",
+                        padding: "2px 8px",
+                        borderRadius: 10,
+                      }}
+                    >
+                      {projTotal} {projTotal === 1 ? "task" : "tasks"}
+                    </div>
+                  </div>
+                  <div className="board">
+                    {COLS.map((c) => {
+                      const ct = project.tasks[c.key] || [];
+                      return (
+                        <DroppableColumn
+                          key={c.key}
+                          projectId={project.id}
+                          col={c.key}
+                        >
+                          <div className="col-hd">
+                            <div
+                              className="col-dot"
+                              style={{ background: SC[c.key] }}
+                            />
+                            <div className="col-tit">{c.label}</div>
+                            <div className="col-cnt">{ct.length}</div>
+                            <button
+                              className="col-add"
+                              onClick={() => quickAdd(project.id, c.key)}
+                            >
+                              +
+                            </button>
+                          </div>
+                          <div>
+                            {ct.map((t) => (
+                              <DraggableCard
+                                key={t.id}
+                                task={t}
+                                onClick={() =>
+                                  onOpenDetail(t, project.id, c.key)
+                                }
+                              />
+                            ))}
+                          </div>
+                        </DroppableColumn>
+                      );
+                    })}
                   </div>
                 </div>
-                <div className="board">
-                  {COLS.map((c) => {
-                    const ct = project.tasks[c.key] || [];
-                    return (
-                      <DroppableColumn
-                        key={c.key}
-                        projectId={project.id}
-                        col={c.key}
-                      >
-                        <div className="col-hd">
-                          <div
-                            className="col-dot"
-                            style={{ background: SC[c.key] }}
-                          />
-                          <div className="col-tit">{c.label}</div>
-                          <div className="col-cnt">{ct.length}</div>
-                          <button
-                            className="col-add"
-                            onClick={() => quickAdd(project.id, c.key)}
-                          >
-                            +
-                          </button>
-                        </div>
-                        <div>
-                          {ct.map((t) => (
-                            <DraggableCard
-                              key={t.id}
-                              task={t}
-                              onClick={() =>
-                                onOpenDetail(t, project.id, c.key)
-                              }
-                            />
-                          ))}
-                        </div>
-                      </DroppableColumn>
-                    );
-                  })}
+              );
+            })}
+          </div>
+          <DragOverlay dropAnimation={null}>
+            {activeDrag ? <Card task={activeDrag} onClick={() => {}} /> : null}
+          </DragOverlay>
+        </DndContext>
+      )}
+    </div>
+  );
+}
+
+function ListsView({
+  projects,
+  onOpenDetail,
+}: {
+  projects: Project[];
+  onOpenDetail: (task: Task, projectId: string, col: ColKey) => void;
+}) {
+  const flat = useMemo(() => {
+    const rows: Array<{ task: Task; projectId: string; projectName: string; projectColor: string; col: ColKey }> = [];
+    for (const p of projects) {
+      for (const c of COLS) {
+        for (const t of p.tasks[c.key] || []) {
+          rows.push({
+            task: t,
+            projectId: p.id,
+            projectName: p.name,
+            projectColor: p.color,
+            col: c.key,
+          });
+        }
+      }
+    }
+    return rows;
+  }, [projects]);
+
+  if (flat.length === 0) {
+    return (
+      <div className="no-proj" style={{ flex: 1 }}>
+        <div className="no-proj-ico">📋</div>
+        <div className="no-proj-tit">No tasks match the current filters</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ flex: 1, overflow: "auto", padding: "4px" }}>
+      <table className="list-tbl">
+        <thead>
+          <tr>
+            <th>Task</th>
+            <th>Status</th>
+            <th>Priority</th>
+            <th>Tags</th>
+            <th>Due</th>
+            <th>Project</th>
+          </tr>
+        </thead>
+        <tbody>
+          {flat.map(({ task, projectId, projectName, projectColor, col }) => (
+            <tr
+              key={task.id}
+              className="list-row"
+              onClick={() => onOpenDetail(task, projectId, col)}
+            >
+              <td>
+                <div className="list-task-tit">{task.title}</div>
+                {task.desc && <div className="list-task-desc">{task.desc}</div>}
+              </td>
+              <td>
+                <span className="list-status" style={{ background: SC[col] + "22", color: SC[col] }}>
+                  {SL[col]}
+                </span>
+              </td>
+              <td>
+                <span className={"list-pri " + PM[task.priority]}>{task.priority}</span>
+              </td>
+              <td>
+                <div className="list-tags">
+                  {task.tags.slice(0, 3).map((tg) => (
+                    <span key={tg} className="list-tag">
+                      {tg}
+                    </span>
+                  ))}
+                  {task.tags.length > 3 && (
+                    <span className="list-tag-more">+{task.tags.length - 3}</span>
+                  )}
                 </div>
-              </div>
-            );
-          })}
+              </td>
+              <td className="list-due">{task.date}</td>
+              <td>
+                <div className="list-proj">
+                  <span className="list-proj-dot" style={{ background: projectColor }} />
+                  {projectName}
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function TimelineView({
+  projects,
+  onOpenDetail,
+}: {
+  projects: Project[];
+  onOpenDetail: (task: Task, projectId: string, col: ColKey) => void;
+}) {
+  const grouped = useMemo(() => {
+    const buckets = new Map<
+      string,
+      Array<{
+        task: Task;
+        projectId: string;
+        projectName: string;
+        projectColor: string;
+        col: ColKey;
+        sortKey: number;
+      }>
+    >();
+    const NO_DATE = "__none__";
+    for (const p of projects) {
+      for (const c of COLS) {
+        for (const t of p.tasks[c.key] || []) {
+          const d = parseTaskDate(t.date);
+          const bucket = d ? isoKey(d) : NO_DATE;
+          const sortKey = d ? d.getTime() : Number.MAX_SAFE_INTEGER;
+          const arr = buckets.get(bucket) ?? [];
+          arr.push({
+            task: t,
+            projectId: p.id,
+            projectName: p.name,
+            projectColor: p.color,
+            col: c.key,
+            sortKey,
+          });
+          buckets.set(bucket, arr);
+        }
+      }
+    }
+    const ordered = Array.from(buckets.entries()).sort((a, b) => {
+      if (a[0] === NO_DATE) return 1;
+      if (b[0] === NO_DATE) return -1;
+      return a[0].localeCompare(b[0]);
+    });
+    return ordered.map(([key, items]) => ({
+      key,
+      label: key === NO_DATE ? "No due date" : prettyDay(key),
+      items: items.sort((x, y) => x.sortKey - y.sortKey),
+    }));
+  }, [projects]);
+
+  if (grouped.length === 0) {
+    return (
+      <div className="no-proj" style={{ flex: 1 }}>
+        <div className="no-proj-ico">📅</div>
+        <div className="no-proj-tit">No tasks to plot on the timeline</div>
+      </div>
+    );
+  }
+
+  const today = isoKey(new Date());
+
+  return (
+    <div style={{ flex: 1, overflow: "auto", padding: "4px" }}>
+      {grouped.map((g) => (
+        <div key={g.key} className="tl-group">
+          <div className={"tl-group-hd" + (g.key === today ? " today" : "")}>
+            <span className="tl-group-dot" />
+            <span className="tl-group-lbl">{g.label}</span>
+            <span className="tl-group-cnt">{g.items.length}</span>
+          </div>
+          <ul className="tl-list">
+            {g.items.map((it) => (
+              <li
+                key={it.task.id}
+                className="tl-row"
+                onClick={() => onOpenDetail(it.task, it.projectId, it.col)}
+              >
+                <span
+                  className="tl-row-mark"
+                  style={{ background: SC[it.col] }}
+                />
+                <div className="tl-row-body">
+                  <div className="tl-row-tit">{it.task.title}</div>
+                  <div className="tl-row-meta">
+                    <span
+                      className="tl-row-proj-dot"
+                      style={{ background: it.projectColor }}
+                    />
+                    <span>{it.projectName}</span>
+                    <span className="tl-row-sep">·</span>
+                    <span className={"list-pri " + PM[it.task.priority]}>
+                      {it.task.priority}
+                    </span>
+                    <span className="tl-row-sep">·</span>
+                    <span style={{ color: SC[it.col] }}>{SL[it.col]}</span>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
         </div>
-        <DragOverlay dropAnimation={null}>
-          {activeDrag ? <Card task={activeDrag} onClick={() => {}} /> : null}
-        </DragOverlay>
-      </DndContext>
+      ))}
     </div>
   );
 }
