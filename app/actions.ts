@@ -788,6 +788,35 @@ export type NewsItem = {
   publishedAt: string;
 };
 
+type HNHit = {
+  objectID: string;
+  title?: string | null;
+  story_title?: string | null;
+  url?: string | null;
+  story_url?: string | null;
+  points?: number | null;
+  num_comments?: number | null;
+  author?: string | null;
+  created_at?: string | null;
+};
+
+async function searchHN(query: string, hitsPerPage = 12): Promise<HNHit[]> {
+  // HN Algolia returns 0 hits when given an "OR" expression — we have to
+  // run separate keyword queries and merge.
+  const url =
+    "https://hn.algolia.com/api/v1/search_by_date?query=" +
+    encodeURIComponent(query) +
+    "&tags=story&hitsPerPage=" +
+    hitsPerPage;
+  const res = await fetch(url, {
+    headers: { Accept: "application/json" },
+    next: { revalidate: 60 },
+  });
+  if (!res.ok) throw new Error("HN search returned " + res.status);
+  const data = (await res.json()) as { hits?: HNHit[] };
+  return Array.isArray(data.hits) ? data.hits : [];
+}
+
 export async function fetchAINewsAction(): Promise<{
   items: NewsItem[];
   fetchedAt: string;
@@ -795,31 +824,15 @@ export async function fetchAINewsAction(): Promise<{
 }> {
   const fetchedAt = new Date().toISOString();
   try {
-    const query = encodeURIComponent("Claude OR Anthropic OR \"agentic systems\"");
-    const url =
-      "https://hn.algolia.com/api/v1/search?query=" +
-      query +
-      "&tags=story&hitsPerPage=20";
-    const res = await fetch(url, {
-      headers: { Accept: "application/json" },
-      next: { revalidate: 60 },
-    });
-    if (!res.ok) throw new Error("HN search returned " + res.status);
-    const data = (await res.json()) as {
-      hits?: Array<{
-        objectID: string;
-        title?: string | null;
-        story_title?: string | null;
-        url?: string | null;
-        story_url?: string | null;
-        points?: number | null;
-        num_comments?: number | null;
-        author?: string | null;
-        created_at?: string | null;
-      }>;
-    };
-    const hits = Array.isArray(data.hits) ? data.hits : [];
-    const items: NewsItem[] = hits
+    const queries = ["Claude", "Anthropic", "AI agent", "MCP"];
+    const results = await Promise.all(queries.map((q) => searchHN(q, 12)));
+    const merged = new Map<string, HNHit>();
+    for (const list of results) {
+      for (const h of list) {
+        if (!merged.has(h.objectID)) merged.set(h.objectID, h);
+      }
+    }
+    const items: NewsItem[] = Array.from(merged.values())
       .map((h) => {
         const title = h.title ?? h.story_title ?? "";
         const link =
@@ -844,7 +857,13 @@ export async function fetchAINewsAction(): Promise<{
           publishedAt: h.created_at ?? "",
         } as NewsItem;
       })
-      .filter((x): x is NewsItem => x !== null);
+      .filter((x): x is NewsItem => x !== null)
+      .sort((a, b) => {
+        const ta = new Date(a.publishedAt).getTime() || 0;
+        const tb = new Date(b.publishedAt).getTime() || 0;
+        return tb - ta;
+      })
+      .slice(0, 30);
     return { items, fetchedAt, error: null };
   } catch (err) {
     console.error("[fetchAINewsAction]", err);
