@@ -6,6 +6,7 @@ import {
   timestamp,
   jsonb,
   serial,
+  boolean,
 } from "drizzle-orm/pg-core";
 
 export const taskerSchema = pgSchema("tasker");
@@ -135,3 +136,34 @@ export type Invoice = typeof invoices.$inferSelect;
 export type NewInvoice = typeof invoices.$inferInsert;
 export type Receipt = typeof receipts.$inferSelect;
 export type NewReceipt = typeof receipts.$inferInsert;
+
+export const subscriptions = taskerSchema.table("subscriptions", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  vendor: text("vendor").notNull().default(""),
+  amount: integer("amount").notNull().default(0),
+  currency: varchar("currency", { length: 8 }).notNull().default("USD"),
+  cycleDays: integer("cycle_days").notNull().default(30),
+  lastPaidAt: timestamp("last_paid_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  active: boolean("active").notNull().default(true),
+  notes: text("notes").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const subscriptionPayments = taskerSchema.table("subscription_payments", {
+  id: serial("id").primaryKey(),
+  subscriptionId: integer("subscription_id")
+    .notNull()
+    .references(() => subscriptions.id, { onDelete: "cascade" }),
+  paidAt: timestamp("paid_at", { withTimezone: true }).notNull().defaultNow(),
+  amount: integer("amount").notNull(),
+  notes: text("notes").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type Subscription = typeof subscriptions.$inferSelect;
+export type NewSubscription = typeof subscriptions.$inferInsert;
+export type SubscriptionPayment = typeof subscriptionPayments.$inferSelect;
+export type NewSubscriptionPayment = typeof subscriptionPayments.$inferInsert;

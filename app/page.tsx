@@ -15,6 +15,8 @@ const EMPTY_DATA = {
   allQuotes: [],
   allInvoices: [],
   allReceipts: [],
+  allSubscriptions: [],
+  allSubscriptionPayments: [],
 } as Awaited<ReturnType<typeof loadAllData>>;
 
 export default async function Page() {
@@ -35,6 +37,8 @@ export default async function Page() {
     allQuotes,
     allInvoices,
     allReceipts,
+    allSubscriptions,
+    allSubscriptionPayments,
   } = data;
 
   // Group children by project for the client component
@@ -141,6 +145,34 @@ export default async function Page() {
     createdAt: relTime(r.createdAt),
   }));
 
+  const initialSubscriptions = safeMap(allSubscriptions, "subscriptions", (s) => ({
+    id: s.id,
+    name: s.name ?? "",
+    vendor: s.vendor ?? "",
+    amount: s.amount ?? 0,
+    currency: s.currency ?? "USD",
+    cycleDays: s.cycleDays ?? 30,
+    lastPaidAt: isoOrEmpty(s.lastPaidAt),
+    expiresAt: isoOrEmpty(s.expiresAt),
+    active: s.active ?? true,
+    notes: s.notes ?? "",
+    createdAt: isoOrEmpty(s.createdAt),
+    updatedAt: isoOrEmpty(s.updatedAt),
+  }));
+
+  const initialSubscriptionPayments = safeMap(
+    allSubscriptionPayments,
+    "subscriptionPayments",
+    (p) => ({
+      id: p.id,
+      subscriptionId: p.subscriptionId,
+      paidAt: isoOrEmpty(p.paidAt),
+      amount: p.amount ?? 0,
+      notes: p.notes ?? "",
+      createdAt: isoOrEmpty(p.createdAt),
+    })
+  );
+
   return (
     <TaskManager
       initialProjects={initialProjects}
@@ -149,6 +181,8 @@ export default async function Page() {
       initialQuotes={initialQuotes}
       initialInvoices={initialInvoices}
       initialReceipts={initialReceipts}
+      initialSubscriptions={initialSubscriptions}
+      initialSubscriptionPayments={initialSubscriptionPayments}
     />
   );
 }

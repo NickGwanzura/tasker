@@ -29,6 +29,11 @@ import {
 import Quotes from "./Quotes";
 import Invoices from "./Invoices";
 import Receipts from "./Receipts";
+import Subscriptions, {
+  type Subscription as SubscriptionT,
+  type SubscriptionPayment as SubscriptionPaymentT,
+} from "./Subscriptions";
+import AINews from "./AINews";
 import {
   DndContext,
   type DragEndEvent,
@@ -148,7 +153,9 @@ type PageKey =
   | "settings"
   | "quotes"
   | "invoices"
-  | "receipts";
+  | "receipts"
+  | "subscriptions"
+  | "ai-news";
 
 // ---------- Constants ----------
 const SC: Record<ColKey, string> = {
@@ -221,6 +228,8 @@ const PT: Record<PageKey, string> = {
   quotes: "Quotes",
   invoices: "Invoices",
   receipts: "Receipts",
+  subscriptions: "Subscriptions",
+  "ai-news": "AI News",
 };
 
 function deriveInitials(name: string): string {
@@ -340,6 +349,8 @@ interface TaskManagerProps {
   initialQuotes: Quote[];
   initialInvoices: Invoice[];
   initialReceipts: Receipt[];
+  initialSubscriptions: SubscriptionT[];
+  initialSubscriptionPayments: SubscriptionPaymentT[];
 }
 
 export default function TaskManager({
@@ -349,6 +360,8 @@ export default function TaskManager({
   initialQuotes,
   initialInvoices,
   initialReceipts,
+  initialSubscriptions,
+  initialSubscriptionPayments,
 }: TaskManagerProps) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -1037,6 +1050,35 @@ export default function TaskManager({
               <span className="n-badge">{initialReceipts.length}</span>
             )}
           </div>
+          <div
+            className={"ni" + (page === "subscriptions" ? " active" : "")}
+            onClick={() => navTo("subscriptions")}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 12a9 9 0 1 1-3-6.7" />
+              <polyline points="21 4 21 10 15 10" />
+            </svg>
+            Subscriptions
+            {initialSubscriptions.length > 0 && (
+              <span className="n-badge">{initialSubscriptions.length}</span>
+            )}
+          </div>
+        </div>
+
+        <div className="s-sec">
+          <div className="s-lbl">Intel</div>
+          <div
+            className={"ni" + (page === "ai-news" ? " active" : "")}
+            onClick={() => navTo("ai-news")}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 22V4a2 2 0 0 1 2-2h11l5 5v15a2 2 0 0 1-2 2z" />
+              <line x1="8" y1="10" x2="18" y2="10" />
+              <line x1="8" y1="14" x2="18" y2="14" />
+              <line x1="8" y1="18" x2="14" y2="18" />
+            </svg>
+            AI News
+          </div>
         </div>
 
         <SecuritySection
@@ -1202,6 +1244,17 @@ export default function TaskManager({
             initialReceipts={initialReceipts}
             invoices={initialInvoices}
           />
+        </div>
+
+        <div className={"page" + (page === "subscriptions" ? " active" : "")}>
+          <Subscriptions
+            initialSubscriptions={initialSubscriptions}
+            initialPayments={initialSubscriptionPayments}
+          />
+        </div>
+
+        <div className={"page" + (page === "ai-news" ? " active" : "")}>
+          <AINews />
         </div>
 
         <div className={"page" + (page === "settings" ? " active" : "")}>

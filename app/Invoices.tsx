@@ -89,6 +89,7 @@ export default function Invoices({
   const [editing, setEditing] = useState<Invoice | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [topError, setTopError] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -133,6 +134,7 @@ export default function Invoices({
   const onCreate = async (
     data: Omit<Invoice, "id" | "createdAt" | "updatedAt" | "status">
   ) => {
+    setTopError(null);
     const tempId = -Date.now();
     const optimistic: Invoice = {
       ...data,
@@ -146,7 +148,7 @@ export default function Invoices({
     try {
       const result = await createInvoiceAction({
         ...data,
-        dueDate: new Date(data.dueDate),
+        dueDate: data.dueDate,
       });
       if (result?.id) {
         setInvoices((prev) =>
@@ -181,7 +183,7 @@ export default function Invoices({
       if (patch.total !== undefined) payload.total = patch.total;
       if (patch.status !== undefined) payload.status = patch.status;
       if (patch.notes !== undefined) payload.notes = patch.notes;
-      if (patch.dueDate !== undefined) payload.dueDate = new Date(patch.dueDate);
+      if (patch.dueDate !== undefined) payload.dueDate = patch.dueDate;
       await updateInvoiceAction(payload);
     } catch (err) {
       console.error("updateInvoiceAction failed:", err);
@@ -194,6 +196,7 @@ export default function Invoices({
 
   const onDelete = async (id: number) => {
     if (!confirm("Delete this invoice?")) return;
+    setTopError(null);
     const before = invoices;
     setInvoices((prev) => prev.filter((i) => i.id !== id));
     try {
@@ -201,7 +204,7 @@ export default function Invoices({
     } catch (err) {
       console.error("deleteInvoiceAction failed:", err);
       setInvoices(before);
-      alert("Failed to delete invoice. Check the browser console.");
+      setTopError("Could not delete invoice.");
     }
   };
 
@@ -261,6 +264,8 @@ export default function Invoices({
           />
         </div>
       </div>
+
+      {topError && <div className="fin-form-error" style={{ marginBottom: 10 }}>{topError}</div>}
 
       <div className="fin-chips">
         {STATUS.map((s) => (
@@ -449,6 +454,12 @@ function InvoiceFormModal({
       setError("Fill in client name, email and due date.");
       return;
     }
+    const cleanItems = items.filter((it) => it.description.trim() !== "");
+    if (cleanItems.length === 0) {
+      setError("Add at least one line item.");
+      return;
+    }
+    const cleanTotals = calcTotals(cleanItems, taxPct);
     setPending(true);
     setError(null);
     try {
@@ -456,11 +467,11 @@ function InvoiceFormModal({
         clientName: clientName.trim(),
         clientEmail: clientEmail.trim(),
         clientAddress: clientAddress.trim(),
-        items: items.filter((it) => it.description.trim() !== ""),
-        subtotal: totals.subtotal,
-        tax: totals.tax,
-        total: totals.total,
-        dueDate: new Date(dueDate).toISOString(),
+        items: cleanItems,
+        subtotal: cleanTotals.subtotal,
+        tax: cleanTotals.tax,
+        total: cleanTotals.total,
+        dueDate,
         notes: notes.trim(),
       });
       onSuccess();

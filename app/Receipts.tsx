@@ -45,6 +45,7 @@ export default function Receipts({
   const [showForm, setShowForm] = useState(false);
   const [query, setQuery] = useState("");
   const [methodFilter, setMethodFilter] = useState<string>("all");
+  const [topError, setTopError] = useState<string | null>(null);
 
   const invoiceMap = useMemo(() => {
     const m = new Map<number, Invoice>();
@@ -91,6 +92,7 @@ export default function Receipts({
   }
 
   const onCreate = async (data: Omit<Receipt, "id" | "createdAt">) => {
+    setTopError(null);
     const tempId = -Date.now();
     const optimistic: Receipt = { ...data, id: tempId, createdAt: "Just now" };
     setReceipts((prev) => [optimistic, ...prev]);
@@ -115,6 +117,7 @@ export default function Receipts({
 
   const onDelete = async (id: number) => {
     if (!confirm("Delete this receipt?")) return;
+    setTopError(null);
     const before = receipts;
     setReceipts((prev) => prev.filter((r) => r.id !== id));
     try {
@@ -122,7 +125,7 @@ export default function Receipts({
     } catch (err) {
       console.error("deleteReceiptAction failed:", err);
       setReceipts(before);
-      alert("Could not delete the receipt. See the browser console.");
+      setTopError("Could not delete receipt.");
     }
   };
 
@@ -181,6 +184,8 @@ export default function Receipts({
           />
         </div>
       </div>
+
+      {topError && <div className="fin-form-error" style={{ marginBottom: 10 }}>{topError}</div>}
 
       {methodChips.length > 1 && (
         <div className="fin-chips">

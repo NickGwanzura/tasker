@@ -4,7 +4,19 @@ import { revalidatePath } from "next/cache";
 import { eq, desc, asc } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 
-const { projects, tasks, docPages, activities, prompts, settings, quotes, invoices, receipts } = schema;
+const {
+  projects,
+  tasks,
+  docPages,
+  activities,
+  prompts,
+  settings,
+  quotes,
+  invoices,
+  receipts,
+  subscriptions,
+  subscriptionPayments,
+} = schema;
 const SETTINGS_ID = "default";
 
 type ColKey = "todo" | "inprogress" | "inreview" | "done";
@@ -15,6 +27,33 @@ const COL_LABEL: Record<ColKey, string> = {
   inreview: "In Review",
   done: "Done",
 };
+
+function assertString(v: unknown, field: string, { min = 0, max = 10000 } = {}): string {
+  if (typeof v !== "string") throw new Error(`${field} must be a string`);
+  if (v.length < min) throw new Error(`${field} is required`);
+  if (v.length > max) throw new Error(`${field} is too long`);
+  return v;
+}
+function assertInt(v: unknown, field: string, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}): number {
+  if (typeof v !== "number" || !Number.isFinite(v) || !Number.isInteger(v)) {
+    throw new Error(`${field} must be an integer`);
+  }
+  if (v < min || v > max) throw new Error(`${field} out of range`);
+  return v;
+}
+function assertItems(v: unknown): Array<{ description: string; quantity: number; rate: number; amount: number }> {
+  if (!Array.isArray(v)) throw new Error("items must be an array");
+  return v.map((it, i) => {
+    if (!it || typeof it !== "object") throw new Error(`items[${i}] invalid`);
+    const o = it as Record<string, unknown>;
+    return {
+      description: assertString(o.description, `items[${i}].description`, { max: 1000 }),
+      quantity: assertInt(o.quantity, `items[${i}].quantity`, { min: 0, max: 1_000_000 }),
+      rate: assertInt(o.rate, `items[${i}].rate`, { min: 0, max: 1_000_000_000 }),
+      amount: assertInt(o.amount, `items[${i}].amount`, { min: 0, max: 1_000_000_000 }),
+    };
+  });
+}
 
 // ---------- Projects ----------
 export async function createProjectAction(input: {
@@ -196,21 +235,34 @@ export async function createQuoteAction(input: {
   total: number;
   notes: string;
 }) {
-  const inserted = await db
-    .insert(quotes)
-    .values({
-      clientName: input.clientName,
-      clientEmail: input.clientEmail,
-      clientAddress: input.clientAddress,
-      items: input.items,
-      subtotal: input.subtotal,
-      tax: input.tax,
-      total: input.total,
-      notes: input.notes,
-    })
-    .returning();
-  revalidatePath("/");
-  return { id: inserted[0]?.id, status: inserted[0]?.status ?? "draft" };
+  try {
+    const clientName = assertString(input.clientName, "clientName", { min: 1, max: 200 });
+    const clientEmail = assertString(input.clientEmail, "clientEmail", { min: 1, max: 200 });
+    const clientAddress = assertString(input.clientAddress, "clientAddress", { max: 1000 });
+    const notes = assertString(input.notes, "notes", { max: 5000 });
+    const items = assertItems(input.items);
+    const subtotal = assertInt(input.subtotal, "subtotal", { min: 0 });
+    const tax = assertInt(input.tax, "tax", { min: 0 });
+    const total = assertInt(input.total, "total", { min: 0 });
+    const inserted = await db
+      .insert(quotes)
+      .values({
+        clientName,
+        clientEmail,
+        clientAddress,
+        items,
+        subtotal,
+        tax,
+        total,
+        notes,
+      })
+      .returning();
+    revalidatePath("/");
+    return { id: inserted[0]?.id, status: inserted[0]?.status ?? "draft" };
+  } catch (err) {
+    console.error("[createQuoteAction]", err);
+    throw new Error("createQuoteAction failed: " + (err instanceof Error ? err.message : String(err)));
+  }
 }
 
 export async function updateQuoteAction(input: {
@@ -225,23 +277,33 @@ export async function updateQuoteAction(input: {
   status?: string;
   notes?: string;
 }) {
-  const patch: Record<string, unknown> = { updatedAt: new Date() };
-  if (input.clientName !== undefined) patch.clientName = input.clientName;
-  if (input.clientEmail !== undefined) patch.clientEmail = input.clientEmail;
-  if (input.clientAddress !== undefined) patch.clientAddress = input.clientAddress;
-  if (input.items !== undefined) patch.items = input.items;
-  if (input.subtotal !== undefined) patch.subtotal = input.subtotal;
-  if (input.tax !== undefined) patch.tax = input.tax;
-  if (input.total !== undefined) patch.total = input.total;
-  if (input.status !== undefined) patch.status = input.status;
-  if (input.notes !== undefined) patch.notes = input.notes;
-  await db.update(quotes).set(patch).where(eq(quotes.id, input.id));
-  revalidatePath("/");
+  try {
+    const patch: Record<string, unknown> = { updatedAt: new Date() };
+    if (input.clientName !== undefined) patch.clientName = input.clientName;
+    if (input.clientEmail !== undefined) patch.clientEmail = input.clientEmail;
+    if (input.clientAddress !== undefined) patch.clientAddress = input.clientAddress;
+    if (input.items !== undefined) patch.items = input.items;
+    if (input.subtotal !== undefined) patch.subtotal = input.subtotal;
+    if (input.tax !== undefined) patch.tax = input.tax;
+    if (input.total !== undefined) patch.total = input.total;
+    if (input.status !== undefined) patch.status = input.status;
+    if (input.notes !== undefined) patch.notes = input.notes;
+    await db.update(quotes).set(patch).where(eq(quotes.id, input.id));
+    revalidatePath("/");
+  } catch (err) {
+    console.error("[updateQuoteAction]", err);
+    throw new Error("updateQuoteAction failed: " + (err instanceof Error ? err.message : String(err)));
+  }
 }
 
 export async function deleteQuoteAction(input: { id: number }) {
-  await db.delete(quotes).where(eq(quotes.id, input.id));
-  revalidatePath("/");
+  try {
+    await db.delete(quotes).where(eq(quotes.id, input.id));
+    revalidatePath("/");
+  } catch (err) {
+    console.error("[deleteQuoteAction]", err);
+    throw new Error("deleteQuoteAction failed: " + (err instanceof Error ? err.message : String(err)));
+  }
 }
 
 // ---------- Invoices ----------
@@ -253,25 +315,41 @@ export async function createInvoiceAction(input: {
   subtotal: number;
   tax: number;
   total: number;
-  dueDate: Date;
+  dueDate: string;
   notes: string;
 }) {
-  const inserted = await db
-    .insert(invoices)
-    .values({
-      clientName: input.clientName,
-      clientEmail: input.clientEmail,
-      clientAddress: input.clientAddress,
-      items: input.items,
-      subtotal: input.subtotal,
-      tax: input.tax,
-      total: input.total,
-      dueDate: input.dueDate,
-      notes: input.notes,
-    })
-    .returning();
-  revalidatePath("/");
-  return { id: inserted[0]?.id, status: inserted[0]?.status ?? "unpaid" };
+  try {
+    const clientName = assertString(input.clientName, "clientName", { min: 1, max: 200 });
+    const clientEmail = assertString(input.clientEmail, "clientEmail", { min: 1, max: 200 });
+    const clientAddress = assertString(input.clientAddress, "clientAddress", { max: 1000 });
+    const notes = assertString(input.notes, "notes", { max: 5000 });
+    const items = assertItems(input.items);
+    const subtotal = assertInt(input.subtotal, "subtotal", { min: 0 });
+    const tax = assertInt(input.tax, "tax", { min: 0 });
+    const total = assertInt(input.total, "total", { min: 0 });
+    const dueDateStr = assertString(input.dueDate, "dueDate", { min: 1, max: 64 });
+    const dueDate = new Date(dueDateStr);
+    if (isNaN(dueDate.getTime())) throw new Error("Invalid dueDate");
+    const inserted = await db
+      .insert(invoices)
+      .values({
+        clientName,
+        clientEmail,
+        clientAddress,
+        items,
+        subtotal,
+        tax,
+        total,
+        dueDate,
+        notes,
+      })
+      .returning();
+    revalidatePath("/");
+    return { id: inserted[0]?.id, status: inserted[0]?.status ?? "unpaid" };
+  } catch (err) {
+    console.error("[createInvoiceAction]", err);
+    throw new Error("createInvoiceAction failed: " + (err instanceof Error ? err.message : String(err)));
+  }
 }
 
 export async function updateInvoiceAction(input: {
@@ -284,27 +362,41 @@ export async function updateInvoiceAction(input: {
   tax?: number;
   total?: number;
   status?: string;
-  dueDate?: Date;
+  dueDate?: string;
   notes?: string;
 }) {
-  const patch: Record<string, unknown> = { updatedAt: new Date() };
-  if (input.clientName !== undefined) patch.clientName = input.clientName;
-  if (input.clientEmail !== undefined) patch.clientEmail = input.clientEmail;
-  if (input.clientAddress !== undefined) patch.clientAddress = input.clientAddress;
-  if (input.items !== undefined) patch.items = input.items;
-  if (input.subtotal !== undefined) patch.subtotal = input.subtotal;
-  if (input.tax !== undefined) patch.tax = input.tax;
-  if (input.total !== undefined) patch.total = input.total;
-  if (input.status !== undefined) patch.status = input.status;
-  if (input.dueDate !== undefined) patch.dueDate = input.dueDate;
-  if (input.notes !== undefined) patch.notes = input.notes;
-  await db.update(invoices).set(patch).where(eq(invoices.id, input.id));
-  revalidatePath("/");
+  try {
+    const patch: Record<string, unknown> = { updatedAt: new Date() };
+    if (input.clientName !== undefined) patch.clientName = input.clientName;
+    if (input.clientEmail !== undefined) patch.clientEmail = input.clientEmail;
+    if (input.clientAddress !== undefined) patch.clientAddress = input.clientAddress;
+    if (input.items !== undefined) patch.items = input.items;
+    if (input.subtotal !== undefined) patch.subtotal = input.subtotal;
+    if (input.tax !== undefined) patch.tax = input.tax;
+    if (input.total !== undefined) patch.total = input.total;
+    if (input.status !== undefined) patch.status = input.status;
+    if (input.dueDate !== undefined) {
+      const d = new Date(input.dueDate);
+      if (isNaN(d.getTime())) throw new Error("Invalid dueDate");
+      patch.dueDate = d;
+    }
+    if (input.notes !== undefined) patch.notes = input.notes;
+    await db.update(invoices).set(patch).where(eq(invoices.id, input.id));
+    revalidatePath("/");
+  } catch (err) {
+    console.error("[updateInvoiceAction]", err);
+    throw new Error("updateInvoiceAction failed: " + (err instanceof Error ? err.message : String(err)));
+  }
 }
 
 export async function deleteInvoiceAction(input: { id: number }) {
-  await db.delete(invoices).where(eq(invoices.id, input.id));
-  revalidatePath("/");
+  try {
+    await db.delete(invoices).where(eq(invoices.id, input.id));
+    revalidatePath("/");
+  } catch (err) {
+    console.error("[deleteInvoiceAction]", err);
+    throw new Error("deleteInvoiceAction failed: " + (err instanceof Error ? err.message : String(err)));
+  }
 }
 
 // ---------- Receipts ----------
@@ -315,18 +407,30 @@ export async function createReceiptAction(input: {
   transactionId: string;
   notes: string;
 }) {
-  const inserted = await db
-    .insert(receipts)
-    .values({
-      invoiceId: input.invoiceId,
-      amount: input.amount,
-      paymentMethod: input.paymentMethod,
-      transactionId: input.transactionId,
-      notes: input.notes,
-    })
-    .returning();
-  revalidatePath("/");
-  return { id: inserted[0]?.id };
+  try {
+    const invoiceId = assertInt(input.invoiceId, "invoiceId", { min: 1 });
+    const amount = assertInt(input.amount, "amount", { min: 1 });
+    const paymentMethod = assertString(input.paymentMethod, "paymentMethod", { min: 1, max: 64 });
+    const transactionId = assertString(input.transactionId, "transactionId", { max: 200 });
+    const notes = assertString(input.notes, "notes", { max: 5000 });
+    const exists = await db.select({ id: invoices.id }).from(invoices).where(eq(invoices.id, invoiceId)).limit(1);
+    if (!exists[0]) throw new Error("Invoice not found");
+    const inserted = await db
+      .insert(receipts)
+      .values({
+        invoiceId,
+        amount,
+        paymentMethod,
+        transactionId,
+        notes,
+      })
+      .returning();
+    revalidatePath("/");
+    return { id: inserted[0]?.id };
+  } catch (err) {
+    console.error("[createReceiptAction]", err);
+    throw new Error("createReceiptAction failed: " + (err instanceof Error ? err.message : String(err)));
+  }
 }
 
 export async function updateReceiptAction(input: {
@@ -337,19 +441,29 @@ export async function updateReceiptAction(input: {
   transactionId?: string;
   notes?: string;
 }) {
-  const patch: Record<string, unknown> = {};
-  if (input.invoiceId !== undefined) patch.invoiceId = input.invoiceId;
-  if (input.amount !== undefined) patch.amount = input.amount;
-  if (input.paymentMethod !== undefined) patch.paymentMethod = input.paymentMethod;
-  if (input.transactionId !== undefined) patch.transactionId = input.transactionId;
-  if (input.notes !== undefined) patch.notes = input.notes;
-  await db.update(receipts).set(patch).where(eq(receipts.id, input.id));
-  revalidatePath("/");
+  try {
+    const patch: Record<string, unknown> = {};
+    if (input.invoiceId !== undefined) patch.invoiceId = input.invoiceId;
+    if (input.amount !== undefined) patch.amount = input.amount;
+    if (input.paymentMethod !== undefined) patch.paymentMethod = input.paymentMethod;
+    if (input.transactionId !== undefined) patch.transactionId = input.transactionId;
+    if (input.notes !== undefined) patch.notes = input.notes;
+    await db.update(receipts).set(patch).where(eq(receipts.id, input.id));
+    revalidatePath("/");
+  } catch (err) {
+    console.error("[updateReceiptAction]", err);
+    throw new Error("updateReceiptAction failed: " + (err instanceof Error ? err.message : String(err)));
+  }
 }
 
 export async function deleteReceiptAction(input: { id: number }) {
-  await db.delete(receipts).where(eq(receipts.id, input.id));
-  revalidatePath("/");
+  try {
+    await db.delete(receipts).where(eq(receipts.id, input.id));
+    revalidatePath("/");
+  } catch (err) {
+    console.error("[deleteReceiptAction]", err);
+    throw new Error("deleteReceiptAction failed: " + (err instanceof Error ? err.message : String(err)));
+  }
 }
 
 // ---------- Loaders ----------
@@ -365,20 +479,37 @@ async function safeSelect<T>(label: string, fn: () => Promise<T[]>): Promise<T[]
 }
 
 export async function loadAllData() {
-  const [allProjects, allTasks, allDocs, allActivities, allPrompts, settingsRow, allQuotes, allInvoices, allReceipts] =
-    await Promise.all([
-      safeSelect("projects", () => db.select().from(projects).orderBy(asc(projects.createdAt))),
-      safeSelect("tasks", () => db.select().from(tasks).orderBy(asc(tasks.position), asc(tasks.id))),
-      safeSelect("docPages", () => db.select().from(docPages).orderBy(asc(docPages.createdAt))),
-      safeSelect("activities", () => db.select().from(activities).orderBy(desc(activities.createdAt))),
-      safeSelect("prompts", () => db.select().from(prompts).orderBy(desc(prompts.createdAt))),
-      safeSelect("settings", () =>
-        db.select().from(settings).where(eq(settings.id, SETTINGS_ID)).limit(1)
-      ),
-      safeSelect("quotes", () => db.select().from(quotes).orderBy(desc(quotes.createdAt))),
-      safeSelect("invoices", () => db.select().from(invoices).orderBy(desc(invoices.createdAt))),
-      safeSelect("receipts", () => db.select().from(receipts).orderBy(desc(receipts.createdAt))),
-    ]);
+  const [
+    allProjects,
+    allTasks,
+    allDocs,
+    allActivities,
+    allPrompts,
+    settingsRow,
+    allQuotes,
+    allInvoices,
+    allReceipts,
+    allSubscriptions,
+    allSubscriptionPayments,
+  ] = await Promise.all([
+    safeSelect("projects", () => db.select().from(projects).orderBy(asc(projects.createdAt))),
+    safeSelect("tasks", () => db.select().from(tasks).orderBy(asc(tasks.position), asc(tasks.id))),
+    safeSelect("docPages", () => db.select().from(docPages).orderBy(asc(docPages.createdAt))),
+    safeSelect("activities", () => db.select().from(activities).orderBy(desc(activities.createdAt))),
+    safeSelect("prompts", () => db.select().from(prompts).orderBy(desc(prompts.createdAt))),
+    safeSelect("settings", () =>
+      db.select().from(settings).where(eq(settings.id, SETTINGS_ID)).limit(1)
+    ),
+    safeSelect("quotes", () => db.select().from(quotes).orderBy(desc(quotes.createdAt))),
+    safeSelect("invoices", () => db.select().from(invoices).orderBy(desc(invoices.createdAt))),
+    safeSelect("receipts", () => db.select().from(receipts).orderBy(desc(receipts.createdAt))),
+    safeSelect("subscriptions", () =>
+      db.select().from(subscriptions).orderBy(asc(subscriptions.expiresAt))
+    ),
+    safeSelect("subscriptionPayments", () =>
+      db.select().from(subscriptionPayments).orderBy(desc(subscriptionPayments.paidAt))
+    ),
+  ]);
   let appSettings = settingsRow[0];
   if (!appSettings) {
     try {
@@ -414,6 +545,8 @@ export async function loadAllData() {
     allQuotes,
     allInvoices,
     allReceipts,
+    allSubscriptions,
+    allSubscriptionPayments,
   };
 }
 
@@ -442,18 +575,31 @@ export async function updateSettingsAction(input: {
 
 // ---------- Data ops ----------
 export async function exportAllDataAction() {
-  const [allProjects, allTasks, allDocs, allActivities, allPrompts, settingsRow, allQuotes, allInvoices, allReceipts] =
-    await Promise.all([
-      db.select().from(projects),
-      db.select().from(tasks),
-      db.select().from(docPages),
-      db.select().from(activities),
-      db.select().from(prompts),
-      db.select().from(settings).where(eq(settings.id, SETTINGS_ID)).limit(1),
-      db.select().from(quotes),
-      db.select().from(invoices),
-      db.select().from(receipts),
-    ]);
+  const [
+    allProjects,
+    allTasks,
+    allDocs,
+    allActivities,
+    allPrompts,
+    settingsRow,
+    allQuotes,
+    allInvoices,
+    allReceipts,
+    allSubscriptions,
+    allSubscriptionPayments,
+  ] = await Promise.all([
+    db.select().from(projects),
+    db.select().from(tasks),
+    db.select().from(docPages),
+    db.select().from(activities),
+    db.select().from(prompts),
+    db.select().from(settings).where(eq(settings.id, SETTINGS_ID)).limit(1),
+    db.select().from(quotes),
+    db.select().from(invoices),
+    db.select().from(receipts),
+    db.select().from(subscriptions),
+    db.select().from(subscriptionPayments),
+  ]);
   return {
     exportedAt: new Date().toISOString(),
     version: 1,
@@ -466,11 +612,15 @@ export async function exportAllDataAction() {
     quotes: allQuotes,
     invoices: allInvoices,
     receipts: allReceipts,
+    subscriptions: allSubscriptions,
+    subscriptionPayments: allSubscriptionPayments,
   };
 }
 
 export async function wipeAllDataAction() {
   // Cascade FKs handle children, but be explicit for safety + activities/prompts cleanup
+  await db.delete(subscriptionPayments);
+  await db.delete(subscriptions);
   await db.delete(receipts);
   await db.delete(invoices);
   await db.delete(quotes);
@@ -480,6 +630,230 @@ export async function wipeAllDataAction() {
   await db.delete(projects);
   await db.delete(prompts);
   revalidatePath("/");
+}
+
+// ---------- Subscriptions ----------
+function addDays(d: Date, days: number): Date {
+  const out = new Date(d.getTime());
+  out.setUTCDate(out.getUTCDate() + days);
+  return out;
+}
+
+export async function createSubscriptionAction(input: {
+  name: string;
+  vendor: string;
+  amount: number;
+  currency: string;
+  cycleDays: number;
+  lastPaidAt: string;
+  notes: string;
+}) {
+  try {
+    const name = assertString(input.name, "name", { min: 1, max: 200 });
+    const vendor = assertString(input.vendor, "vendor", { max: 200 });
+    const amount = assertInt(input.amount, "amount", { min: 0, max: 1_000_000_000 });
+    const currency = assertString(input.currency, "currency", { min: 1, max: 8 });
+    const cycleDays = assertInt(input.cycleDays, "cycleDays", { min: 1, max: 366 });
+    const notes = assertString(input.notes, "notes", { max: 5000 });
+    const paidAt = new Date(input.lastPaidAt);
+    if (isNaN(paidAt.getTime())) throw new Error("Invalid lastPaidAt");
+    const expiresAt = addDays(paidAt, cycleDays);
+    const inserted = await db
+      .insert(subscriptions)
+      .values({
+        name,
+        vendor,
+        amount,
+        currency,
+        cycleDays,
+        lastPaidAt: paidAt,
+        expiresAt,
+        notes,
+      })
+      .returning();
+    const sub = inserted[0];
+    if (sub) {
+      await db.insert(subscriptionPayments).values({
+        subscriptionId: sub.id,
+        paidAt,
+        amount,
+        notes: "Initial billing on file",
+      });
+    }
+    revalidatePath("/");
+    return { id: sub?.id, expiresAt: sub?.expiresAt?.toISOString() };
+  } catch (err) {
+    console.error("[createSubscriptionAction]", err);
+    throw new Error("createSubscriptionAction failed: " + (err instanceof Error ? err.message : String(err)));
+  }
+}
+
+export async function recordSubscriptionPaymentAction(input: {
+  subscriptionId: number;
+  paidAt: string;
+  amount?: number;
+  notes?: string;
+}) {
+  try {
+    const subscriptionId = assertInt(input.subscriptionId, "subscriptionId", { min: 1 });
+    const paidAt = new Date(input.paidAt);
+    if (isNaN(paidAt.getTime())) throw new Error("Invalid paidAt");
+    const subRow = await db
+      .select()
+      .from(subscriptions)
+      .where(eq(subscriptions.id, subscriptionId))
+      .limit(1);
+    const sub = subRow[0];
+    if (!sub) throw new Error("Subscription not found");
+    const amount =
+      input.amount !== undefined
+        ? assertInt(input.amount, "amount", { min: 0, max: 1_000_000_000 })
+        : sub.amount;
+    const notes = assertString(input.notes ?? "", "notes", { max: 5000 });
+    const expiresAt = addDays(paidAt, sub.cycleDays);
+    await db.insert(subscriptionPayments).values({
+      subscriptionId,
+      paidAt,
+      amount,
+      notes,
+    });
+    await db
+      .update(subscriptions)
+      .set({ lastPaidAt: paidAt, expiresAt, updatedAt: new Date() })
+      .where(eq(subscriptions.id, subscriptionId));
+    revalidatePath("/");
+    return { expiresAt: expiresAt.toISOString() };
+  } catch (err) {
+    console.error("[recordSubscriptionPaymentAction]", err);
+    throw new Error("recordSubscriptionPaymentAction failed: " + (err instanceof Error ? err.message : String(err)));
+  }
+}
+
+export async function updateSubscriptionAction(input: {
+  id: number;
+  name?: string;
+  vendor?: string;
+  amount?: number;
+  currency?: string;
+  cycleDays?: number;
+  active?: boolean;
+  notes?: string;
+}) {
+  try {
+    const patch: Record<string, unknown> = { updatedAt: new Date() };
+    if (input.name !== undefined) patch.name = input.name;
+    if (input.vendor !== undefined) patch.vendor = input.vendor;
+    if (input.amount !== undefined) patch.amount = input.amount;
+    if (input.currency !== undefined) patch.currency = input.currency;
+    if (input.cycleDays !== undefined) {
+      patch.cycleDays = input.cycleDays;
+      const subRow = await db
+        .select({ lastPaidAt: subscriptions.lastPaidAt })
+        .from(subscriptions)
+        .where(eq(subscriptions.id, input.id))
+        .limit(1);
+      if (subRow[0]) {
+        patch.expiresAt = addDays(new Date(subRow[0].lastPaidAt), input.cycleDays);
+      }
+    }
+    if (input.active !== undefined) patch.active = input.active;
+    if (input.notes !== undefined) patch.notes = input.notes;
+    await db.update(subscriptions).set(patch).where(eq(subscriptions.id, input.id));
+    revalidatePath("/");
+  } catch (err) {
+    console.error("[updateSubscriptionAction]", err);
+    throw new Error("updateSubscriptionAction failed: " + (err instanceof Error ? err.message : String(err)));
+  }
+}
+
+export async function deleteSubscriptionAction(input: { id: number }) {
+  try {
+    await db.delete(subscriptions).where(eq(subscriptions.id, input.id));
+    revalidatePath("/");
+  } catch (err) {
+    console.error("[deleteSubscriptionAction]", err);
+    throw new Error("deleteSubscriptionAction failed: " + (err instanceof Error ? err.message : String(err)));
+  }
+}
+
+// ---------- AI News ----------
+export type NewsItem = {
+  id: string;
+  title: string;
+  url: string;
+  source: string;
+  points: number;
+  comments: number;
+  author: string;
+  publishedAt: string;
+};
+
+export async function fetchAINewsAction(): Promise<{
+  items: NewsItem[];
+  fetchedAt: string;
+  error: string | null;
+}> {
+  const fetchedAt = new Date().toISOString();
+  try {
+    const query = encodeURIComponent("Claude OR Anthropic OR \"agentic systems\"");
+    const url =
+      "https://hn.algolia.com/api/v1/search?query=" +
+      query +
+      "&tags=story&hitsPerPage=20";
+    const res = await fetch(url, {
+      headers: { Accept: "application/json" },
+      next: { revalidate: 60 },
+    });
+    if (!res.ok) throw new Error("HN search returned " + res.status);
+    const data = (await res.json()) as {
+      hits?: Array<{
+        objectID: string;
+        title?: string | null;
+        story_title?: string | null;
+        url?: string | null;
+        story_url?: string | null;
+        points?: number | null;
+        num_comments?: number | null;
+        author?: string | null;
+        created_at?: string | null;
+      }>;
+    };
+    const hits = Array.isArray(data.hits) ? data.hits : [];
+    const items: NewsItem[] = hits
+      .map((h) => {
+        const title = h.title ?? h.story_title ?? "";
+        const link =
+          h.url ??
+          h.story_url ??
+          (h.objectID ? `https://news.ycombinator.com/item?id=${h.objectID}` : "");
+        if (!title || !link) return null;
+        let source = "Hacker News";
+        try {
+          source = new URL(link).hostname.replace(/^www\./, "");
+        } catch {
+          // ignore
+        }
+        return {
+          id: h.objectID,
+          title,
+          url: link,
+          source,
+          points: typeof h.points === "number" ? h.points : 0,
+          comments: typeof h.num_comments === "number" ? h.num_comments : 0,
+          author: h.author ?? "",
+          publishedAt: h.created_at ?? "",
+        } as NewsItem;
+      })
+      .filter((x): x is NewsItem => x !== null);
+    return { items, fetchedAt, error: null };
+  } catch (err) {
+    console.error("[fetchAINewsAction]", err);
+    return {
+      items: [],
+      fetchedAt,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 function escapeHtml(s: string): string {

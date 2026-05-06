@@ -60,6 +60,7 @@ export default function Quotes({ initialQuotes }: { initialQuotes: Quote[] }) {
   const [editing, setEditing] = useState<Quote | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [topError, setTopError] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -89,6 +90,7 @@ export default function Quotes({ initialQuotes }: { initialQuotes: Quote[] }) {
   const onCreate = async (
     data: Omit<Quote, "id" | "createdAt" | "updatedAt" | "status">
   ) => {
+    setTopError(null);
     const tempId = -Date.now();
     const optimistic: Quote = {
       ...data,
@@ -121,7 +123,17 @@ export default function Quotes({ initialQuotes }: { initialQuotes: Quote[] }) {
     const before = quotes.find((q) => q.id === id);
     setQuotes((prev) => prev.map((q) => (q.id === id ? { ...q, ...patch } : q)));
     try {
-      await updateQuoteAction({ id, ...patch });
+      const payload: Parameters<typeof updateQuoteAction>[0] = { id };
+      if (patch.clientName !== undefined) payload.clientName = patch.clientName;
+      if (patch.clientEmail !== undefined) payload.clientEmail = patch.clientEmail;
+      if (patch.clientAddress !== undefined) payload.clientAddress = patch.clientAddress;
+      if (patch.items !== undefined) payload.items = patch.items;
+      if (patch.subtotal !== undefined) payload.subtotal = patch.subtotal;
+      if (patch.tax !== undefined) payload.tax = patch.tax;
+      if (patch.total !== undefined) payload.total = patch.total;
+      if (patch.status !== undefined) payload.status = patch.status;
+      if (patch.notes !== undefined) payload.notes = patch.notes;
+      await updateQuoteAction(payload);
     } catch (err) {
       console.error("updateQuoteAction failed:", err);
       if (before) {
@@ -133,6 +145,7 @@ export default function Quotes({ initialQuotes }: { initialQuotes: Quote[] }) {
 
   const onDelete = async (id: number) => {
     if (!confirm("Delete this quote?")) return;
+    setTopError(null);
     const before = quotes;
     setQuotes((prev) => prev.filter((q) => q.id !== id));
     try {
@@ -140,7 +153,7 @@ export default function Quotes({ initialQuotes }: { initialQuotes: Quote[] }) {
     } catch (err) {
       console.error("deleteQuoteAction failed:", err);
       setQuotes(before);
-      alert("Failed to delete quote. Check the browser console.");
+      setTopError("Could not delete quote.");
     }
   };
 
@@ -200,6 +213,8 @@ export default function Quotes({ initialQuotes }: { initialQuotes: Quote[] }) {
           />
         </div>
       </div>
+
+      {topError && <div className="fin-form-error" style={{ marginBottom: 10 }}>{topError}</div>}
 
       <div className="fin-chips">
         {STATUS.map((s) => (
@@ -367,6 +382,12 @@ function QuoteFormModal({
       setError("Fill in client name and email.");
       return;
     }
+    const cleanItems = items.filter((it) => it.description.trim() !== "");
+    if (cleanItems.length === 0) {
+      setError("Add at least one line item.");
+      return;
+    }
+    const cleanTotals = calcTotals(cleanItems, taxPct);
     setPending(true);
     setError(null);
     try {
@@ -374,10 +395,10 @@ function QuoteFormModal({
         clientName: clientName.trim(),
         clientEmail: clientEmail.trim(),
         clientAddress: clientAddress.trim(),
-        items: items.filter((it) => it.description.trim() !== ""),
-        subtotal: totals.subtotal,
-        tax: totals.tax,
-        total: totals.total,
+        items: cleanItems,
+        subtotal: cleanTotals.subtotal,
+        tax: cleanTotals.tax,
+        total: cleanTotals.total,
         notes: notes.trim(),
       });
       onSuccess();
