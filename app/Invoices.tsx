@@ -6,6 +6,7 @@ import {
   updateInvoiceAction,
   deleteInvoiceAction,
 } from "./actions";
+import { downloadInvoicePdf, type CompanyInfo } from "./invoicePdf";
 
 export type InvoiceItem = {
   description: string;
@@ -81,8 +82,10 @@ function calcTotals(items: InvoiceItem[], taxPct: number) {
 
 export default function Invoices({
   initialInvoices,
+  company,
 }: {
   initialInvoices: Invoice[];
+  company: CompanyInfo;
 }) {
   const [invoices, setInvoices] = useState<Invoice[]>(initialInvoices);
   const [showForm, setShowForm] = useState(false);
@@ -348,6 +351,19 @@ export default function Invoices({
                       <option value="paid">Paid</option>
                       <option value="overdue">Overdue</option>
                     </select>
+                    <button
+                      className="fin-icon-btn"
+                      onClick={() => downloadInvoicePdf(inv, company)}
+                      aria-label="Download PDF"
+                      title="Download PDF"
+                    >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <polyline points="14 2 14 8 20 8" />
+                        <line x1="12" y1="18" x2="12" y2="12" />
+                        <polyline points="9 15 12 18 15 15" />
+                      </svg>
+                    </button>
                     <button
                       className="fin-icon-btn"
                       onClick={() => setEditing(inv)}

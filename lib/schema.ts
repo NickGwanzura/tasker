@@ -74,6 +74,12 @@ export const settings = taskerSchema.table("settings", {
   defaultPriority: varchar("default_priority", { length: 16 }).notNull().default("Medium"),
   defaultColumn: varchar("default_column", { length: 32 }).notNull().default("todo"),
   density: varchar("density", { length: 16 }).notNull().default("comfortable"),
+  companyName: text("company_name").notNull().default(""),
+  companyEmail: text("company_email").notNull().default(""),
+  companyPhone: text("company_phone").notNull().default(""),
+  companyAddress: text("company_address").notNull().default(""),
+  companyTaxId: text("company_tax_id").notNull().default(""),
+  companyWebsite: text("company_website").notNull().default(""),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

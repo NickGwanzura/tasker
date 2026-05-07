@@ -532,6 +532,12 @@ export async function loadAllData() {
       defaultPriority: "Medium",
       defaultColumn: "todo",
       density: "comfortable",
+      companyName: "",
+      companyEmail: "",
+      companyPhone: "",
+      companyAddress: "",
+      companyTaxId: "",
+      companyWebsite: "",
       updatedAt: new Date(),
     } as typeof settings.$inferSelect;
   }
@@ -559,6 +565,12 @@ export async function updateSettingsAction(input: {
   defaultPriority?: string;
   defaultColumn?: string;
   density?: string;
+  companyName?: string;
+  companyEmail?: string;
+  companyPhone?: string;
+  companyAddress?: string;
+  companyTaxId?: string;
+  companyWebsite?: string;
 }) {
   const patch: Record<string, unknown> = { updatedAt: new Date() };
   if (input.displayName !== undefined) patch.displayName = input.displayName;
@@ -569,6 +581,12 @@ export async function updateSettingsAction(input: {
     patch.defaultPriority = input.defaultPriority;
   if (input.defaultColumn !== undefined) patch.defaultColumn = input.defaultColumn;
   if (input.density !== undefined) patch.density = input.density;
+  if (input.companyName !== undefined) patch.companyName = input.companyName;
+  if (input.companyEmail !== undefined) patch.companyEmail = input.companyEmail;
+  if (input.companyPhone !== undefined) patch.companyPhone = input.companyPhone;
+  if (input.companyAddress !== undefined) patch.companyAddress = input.companyAddress;
+  if (input.companyTaxId !== undefined) patch.companyTaxId = input.companyTaxId;
+  if (input.companyWebsite !== undefined) patch.companyWebsite = input.companyWebsite;
   await db.update(settings).set(patch).where(eq(settings.id, SETTINGS_ID));
   revalidatePath("/");
 }

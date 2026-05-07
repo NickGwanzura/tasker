@@ -102,6 +102,12 @@ export default async function Page() {
     defaultPriority: appSettings?.defaultPriority ?? "Medium",
     defaultColumn: appSettings?.defaultColumn ?? "todo",
     density: appSettings?.density ?? "comfortable",
+    companyName: appSettings?.companyName ?? "",
+    companyEmail: appSettings?.companyEmail ?? "",
+    companyPhone: appSettings?.companyPhone ?? "",
+    companyAddress: appSettings?.companyAddress ?? "",
+    companyTaxId: appSettings?.companyTaxId ?? "",
+    companyWebsite: appSettings?.companyWebsite ?? "",
   };
 
   const initialQuotes = safeMap(allQuotes, "quotes", (q) => ({

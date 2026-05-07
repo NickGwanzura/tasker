@@ -99,6 +99,12 @@ interface AppSettings {
   defaultPriority: string;
   defaultColumn: string;
   density: string;
+  companyName: string;
+  companyEmail: string;
+  companyPhone: string;
+  companyAddress: string;
+  companyTaxId: string;
+  companyWebsite: string;
 }
 
 interface Quote {
@@ -1237,7 +1243,19 @@ export default function TaskManager({
         </div>
 
         <div className={"page" + (page === "invoices" ? " active" : "")}>
-          <Invoices initialInvoices={initialInvoices} />
+          <Invoices
+            initialInvoices={initialInvoices}
+            company={{
+              companyName: appSettings.companyName,
+              companyEmail: appSettings.companyEmail,
+              companyPhone: appSettings.companyPhone,
+              companyAddress: appSettings.companyAddress,
+              companyTaxId: appSettings.companyTaxId,
+              companyWebsite: appSettings.companyWebsite,
+              displayName: appSettings.displayName,
+              accentColor: appSettings.accentColor,
+            }}
+          />
         </div>
 
         <div className={"page" + (page === "receipts" ? " active" : "")}>
@@ -3596,6 +3614,74 @@ function SettingsView({
             </div>
             <div className="s-plan">{settings.planLabel}</div>
           </div>
+        </div>
+      </div>
+
+      <div className="report-section">
+        <div className="rs-title">
+          Company details<span>Used on invoice PDFs</span>
+        </div>
+        <div className="settings-grid">
+          <div className="fg">
+            <label className="fl">Company name</label>
+            <input
+              type="text"
+              className="fi"
+              value={settings.companyName}
+              onChange={(e) => onChange({ companyName: e.target.value })}
+              placeholder="Acme Studio Ltd."
+            />
+          </div>
+          <div className="fg">
+            <label className="fl">Email</label>
+            <input
+              type="email"
+              className="fi"
+              value={settings.companyEmail}
+              onChange={(e) => onChange({ companyEmail: e.target.value })}
+              placeholder="billing@acme.com"
+            />
+          </div>
+          <div className="fg">
+            <label className="fl">Phone</label>
+            <input
+              type="text"
+              className="fi"
+              value={settings.companyPhone}
+              onChange={(e) => onChange({ companyPhone: e.target.value })}
+              placeholder="+1 555 123 4567"
+            />
+          </div>
+          <div className="fg">
+            <label className="fl">Website</label>
+            <input
+              type="text"
+              className="fi"
+              value={settings.companyWebsite}
+              onChange={(e) => onChange({ companyWebsite: e.target.value })}
+              placeholder="acme.com"
+            />
+          </div>
+          <div className="fg">
+            <label className="fl">Tax ID / VAT</label>
+            <input
+              type="text"
+              className="fi"
+              value={settings.companyTaxId}
+              onChange={(e) => onChange({ companyTaxId: e.target.value })}
+              placeholder="VAT GB 123 4567 89"
+            />
+          </div>
+        </div>
+        <div className="fg" style={{ marginTop: 8 }}>
+          <label className="fl">Address</label>
+          <textarea
+            className="ft"
+            style={{ minHeight: 60 }}
+            value={settings.companyAddress}
+            onChange={(e) => onChange({ companyAddress: e.target.value })}
+            placeholder={"123 Studio Lane\nLondon SW1A 1AA\nUnited Kingdom"}
+          />
         </div>
       </div>
 
