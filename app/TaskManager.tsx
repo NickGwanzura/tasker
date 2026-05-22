@@ -131,6 +131,7 @@ interface Invoice {
   subtotal: number;
   tax: number;
   total: number;
+  paidAmount: number;
   status: string;
   dueDate: string;
   notes: string;

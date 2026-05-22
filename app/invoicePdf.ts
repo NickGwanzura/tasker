@@ -152,6 +152,7 @@ export function buildInvoiceHtml(inv: Invoice, company: CompanyInfo): string {
     letter-spacing: 0.04em;
   }
   .status.paid { background: #e3f9f5; color: #0ca678; }
+  .status.partial { background: #fff4e6; color: #e8590c; }
   .status.unpaid { background: #fff3bf; color: #c2410c; }
   .status.overdue { background: #fff5f5; color: #c92a2a; }
   .parties {

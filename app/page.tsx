@@ -134,6 +134,7 @@ export default async function Page() {
     subtotal: i.subtotal ?? 0,
     tax: i.tax ?? 0,
     total: i.total ?? 0,
+    paidAmount: i.paidAmount ?? 0,
     status: i.status ?? "unpaid",
     dueDate: isoOrEmpty(i.dueDate),
     notes: i.notes ?? "",

@@ -388,6 +388,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);display:flex;he
 .fin-pill.draft{background:var(--s2);color:var(--muted);}
 .fin-pill.sent{background:var(--al);color:var(--accent);}
 .fin-pill.accepted,.fin-pill.paid{background:var(--gl);color:var(--green);}
+.fin-pill.partial{background:var(--ol);color:var(--orange);}
 .fin-pill.rejected,.fin-pill.overdue{background:var(--rl);color:var(--red);}
 .fin-pill.unpaid{background:var(--yl);color:var(--yellow);}
 .fin-card-amt-wrap{display:flex;align-items:baseline;justify-content:space-between;gap:10px;background:var(--s2);border-radius:10px;padding:10px 12px;}
@@ -432,6 +433,19 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);display:flex;he
 .fin-form-error::before{content:"⚠";flex-shrink:0;}
 .fin-spinner{display:inline-block;width:12px;height:12px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:fin-spin .7s linear infinite;}
 @keyframes fin-spin{to{transform:rotate(360deg);}}
+
+/* Partial payment progress bar */
+.fin-pbar{width:100%;height:6px;background:var(--border);border-radius:999px;overflow:hidden;}
+.fin-pbar-fill{height:100%;background:var(--accent);border-radius:999px;transition:width .4s ease;min-width:0;}
+.fin-pbar-fill[style*="100"]{background:var(--green);}
+
+/* Record payment button */
+.fin-pay-btn{width:28px;height:28px;border-radius:7px;border:1px solid var(--border);background:var(--gl);color:var(--green);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .12s;}
+.fin-pay-btn:hover{border-color:var(--green);background:var(--green);color:#fff;}
+
+/* Payment modal quick-select fractions */
+.fin-pay-frac{padding:5px 10px;border:1px solid var(--border);border-radius:7px;background:var(--white);color:var(--muted);cursor:pointer;font-family:var(--f);font-size:11.5px;font-weight:600;transition:all .12s;}
+.fin-pay-frac:hover{border-color:var(--accent);color:var(--accent);background:var(--al);}
 
 @media(max-width:768px){
   .fin{padding:14px 14px calc(90px + env(safe-area-inset-bottom, 0));gap:12px;}

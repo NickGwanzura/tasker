@@ -320,7 +320,7 @@ function ReceiptFormModal({
   const list = unpaid.length > 0 ? unpaid : invoices;
   const [invoiceId, setInvoiceId] = useState<number>(list[0]?.id ?? 0);
   const selected = invoices.find((i) => i.id === invoiceId);
-  const [amount, setAmount] = useState<number>(selected?.total ?? 0);
+  const [amount, setAmount] = useState<number>(selected ? selected.total - (selected.paidAmount || 0) : 0);
   const [paymentMethod, setPaymentMethod] = useState(PAYMENT_METHODS[0]);
   const [transactionId, setTransactionId] = useState("");
   const [notes, setNotes] = useState("");
@@ -328,7 +328,7 @@ function ReceiptFormModal({
   const onPickInvoice = (id: number) => {
     setInvoiceId(id);
     const inv = invoices.find((i) => i.id === id);
-    if (inv) setAmount(inv.total);
+    if (inv) setAmount(inv.total - (inv.paidAmount || 0));
   };
 
   const submit = async () => {
@@ -392,24 +392,28 @@ function ReceiptFormModal({
               value={amount}
               onChange={(e) => setAmount(Number(e.target.value) || 0)}
             />
-            {selected && amount !== selected.total && (
-              <div style={{ fontSize: 11, color: "var(--muted2)", marginTop: 4 }}>
-                Invoice total: {fmt(selected.total)}{" "}
-                <button
-                  type="button"
-                  onClick={() => setAmount(selected.total)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    color: "var(--accent)",
-                    cursor: "pointer",
-                    fontSize: 11,
-                    padding: 0,
-                    fontWeight: 600,
-                  }}
-                >
-                  Use full
-                </button>
+            {selected && (
+              <div style={{ fontSize: 11, color: "var(--muted2)", marginTop: 4, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <span>Total: {fmt(selected.total)}</span>
+                {selected.paidAmount > 0 && <span>· Paid: {fmt(selected.paidAmount)}</span>}
+                <span>· Remaining: <strong>{fmt(selected.total - (selected.paidAmount || 0))}</strong></span>
+                {amount !== selected.total - (selected.paidAmount || 0) && (
+                  <button
+                    type="button"
+                    onClick={() => setAmount(selected.total - (selected.paidAmount || 0))}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "var(--accent)",
+                      cursor: "pointer",
+                      fontSize: 11,
+                      padding: 0,
+                      fontWeight: 600,
+                    }}
+                  >
+                    Use remaining
+                  </button>
+                )}
               </div>
             )}
           </div>

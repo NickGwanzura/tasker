@@ -107,7 +107,8 @@ export const invoices = taskerSchema.table("invoices", {
   subtotal: integer("subtotal").notNull().default(0),
   tax: integer("tax").notNull().default(0),
   total: integer("total").notNull().default(0),
-  status: varchar("status", { length: 16 }).notNull().default("unpaid"), // unpaid, paid, overdue
+  paidAmount: integer("paid_amount").notNull().default(0),
+  status: varchar("status", { length: 16 }).notNull().default("unpaid"), // unpaid, partial, paid, overdue
   dueDate: timestamp("due_date", { withTimezone: true }).notNull(),
   notes: text("notes").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

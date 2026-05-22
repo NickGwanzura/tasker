@@ -5,6 +5,7 @@ import {
   createInvoiceAction,
   updateInvoiceAction,
   deleteInvoiceAction,
+  createReceiptAction,
 } from "./actions";
 import { downloadInvoicePdf, type CompanyInfo } from "./invoicePdf";
 
@@ -24,6 +25,7 @@ export type Invoice = {
   subtotal: number;
   tax: number;
   total: number;
+  paidAmount: number;
   status: string;
   dueDate: string;
   notes: string;
@@ -34,6 +36,7 @@ export type Invoice = {
 const STATUS = [
   { key: "all", label: "All" },
   { key: "unpaid", label: "Unpaid" },
+  { key: "partial", label: "Partial" },
   { key: "paid", label: "Paid" },
   { key: "overdue", label: "Overdue" },
 ] as const;
@@ -90,6 +93,7 @@ export default function Invoices({
   const [invoices, setInvoices] = useState<Invoice[]>(initialInvoices);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Invoice | null>(null);
+  const [payingInvoice, setPayingInvoice] = useState<Invoice | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [topError, setTopError] = useState<string | null>(null);
@@ -98,7 +102,7 @@ export default function Invoices({
     const q = query.trim().toLowerCase();
     return invoices.filter((inv) => {
       const effectiveStatus =
-        inv.status === "unpaid" && isOverdue(inv) ? "overdue" : inv.status;
+        (inv.status === "unpaid" || inv.status === "partial") && isOverdue(inv) ? "overdue" : inv.status;
       if (statusFilter !== "all" && effectiveStatus !== statusFilter)
         return false;
       if (!q) return true;
@@ -112,35 +116,36 @@ export default function Invoices({
 
   const stats = useMemo(() => {
     const totalValue = invoices.reduce((s, i) => s + i.total, 0);
-    const paid = invoices.filter((i) => i.status === "paid");
-    const paidValue = paid.reduce((s, i) => s + i.total, 0);
-    const outstanding = totalValue - paidValue;
+    const totalPaid = invoices.reduce((s, i) => s + i.paidAmount, 0);
+    const outstanding = totalValue - totalPaid;
     const overdue = invoices.filter(isOverdue).length;
     return {
       count: invoices.length,
       totalValue,
+      totalPaid,
       outstanding,
-      paid: paid.length,
       overdue,
     };
   }, [invoices]);
 
   const counts: Record<string, number> = { all: invoices.length };
-  for (const s of ["unpaid", "paid", "overdue"]) {
+  for (const s of ["unpaid", "partial", "paid", "overdue"]) {
     counts[s] = invoices.filter((i) => {
       if (s === "overdue") return isOverdue(i);
       if (s === "unpaid") return i.status === "unpaid" && !isOverdue(i);
+      if (s === "partial") return i.status === "partial" && !isOverdue(i);
       return i.status === s;
     }).length;
   }
 
   const onCreate = async (
-    data: Omit<Invoice, "id" | "createdAt" | "updatedAt" | "status">
+    data: Omit<Invoice, "id" | "createdAt" | "updatedAt" | "status" | "paidAmount">
   ) => {
     setTopError(null);
     const tempId = -Date.now();
     const optimistic: Invoice = {
       ...data,
+      paidAmount: 0,
       id: tempId,
       status: "unpaid",
       createdAt: "Just now",
@@ -184,6 +189,7 @@ export default function Invoices({
       if (patch.subtotal !== undefined) payload.subtotal = patch.subtotal;
       if (patch.tax !== undefined) payload.tax = patch.tax;
       if (patch.total !== undefined) payload.total = patch.total;
+      if (patch.paidAmount !== undefined) payload.paidAmount = patch.paidAmount;
       if (patch.status !== undefined) payload.status = patch.status;
       if (patch.notes !== undefined) payload.notes = patch.notes;
       if (patch.dueDate !== undefined) payload.dueDate = patch.dueDate;
@@ -208,6 +214,34 @@ export default function Invoices({
       console.error("deleteInvoiceAction failed:", err);
       setInvoices(before);
       setTopError("Could not delete invoice.");
+    }
+  };
+
+  const onRecordPayment = async (invoiceId: number, amount: number) => {
+    const before = invoices.find((i) => i.id === invoiceId);
+    // Optimistic update
+    setInvoices((prev) =>
+      prev.map((i) => {
+        if (i.id !== invoiceId) return i;
+        const newPaid = i.paidAmount + amount;
+        const newStatus = newPaid >= i.total ? "paid" : "partial";
+        return { ...i, paidAmount: newPaid, status: newStatus };
+      })
+    );
+    try {
+      await createReceiptAction({
+        invoiceId,
+        amount,
+        paymentMethod: "Other",
+        transactionId: "",
+        notes: "Manual payment entry",
+      });
+    } catch (err) {
+      console.error("createReceiptAction failed:", err);
+      if (before) {
+        setInvoices((prev) => prev.map((i) => (i.id === invoiceId ? before : i)));
+      }
+      throw err;
     }
   };
 
@@ -242,8 +276,8 @@ export default function Invoices({
           <div className="fin-stat-val">{fmt(stats.outstanding)}</div>
         </div>
         <div className="fin-stat">
-          <div className="fin-stat-lbl">Paid</div>
-          <div className="fin-stat-val">{stats.paid}</div>
+          <div className="fin-stat-lbl">Collected</div>
+          <div className="fin-stat-val">{fmt(stats.totalPaid)}</div>
         </div>
         <div className="fin-stat">
           <div className="fin-stat-lbl">Overdue</div>
@@ -308,6 +342,9 @@ export default function Invoices({
           {filtered.map((inv) => {
             const overdue = isOverdue(inv);
             const displayStatus = overdue ? "overdue" : inv.status;
+            const remaining = inv.total - inv.paidAmount;
+            const pctPaid = inv.total > 0 ? Math.round((inv.paidAmount / inv.total) * 100) : 0;
+            const needsPayment = inv.status !== "paid" && remaining > 0;
             return (
               <article className="fin-card" key={inv.id}>
                 <div className="fin-card-top">
@@ -323,17 +360,31 @@ export default function Invoices({
                   </span>
                 </div>
 
-                <div className="fin-card-amt-wrap">
-                  <div style={{ display: "flex", flexDirection: "column" }}>
-                    <span className="fin-card-amt-lbl">Total</span>
-                    <span
-                      className="fin-card-meta"
-                      style={overdue ? { color: "var(--red)", fontWeight: 600 } : undefined}
-                    >
-                      Due {dateOnly(inv.dueDate)}
-                    </span>
+                <div className="fin-card-amt-wrap" style={{ flexDirection: "column", gap: 8 }}>
+                  <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", width: "100%" }}>
+                    <div style={{ display: "flex", flexDirection: "column" }}>
+                      <span className="fin-card-amt-lbl">Total</span>
+                      <span
+                        className="fin-card-meta"
+                        style={overdue ? { color: "var(--red)", fontWeight: 600 } : undefined}
+                      >
+                        Due {dateOnly(inv.dueDate)}
+                      </span>
+                    </div>
+                    <span className="fin-card-amt">{fmt(inv.total)}</span>
                   </div>
-                  <span className="fin-card-amt">{fmt(inv.total)}</span>
+
+                  {inv.paidAmount > 0 && (
+                    <div style={{ width: "100%" }}>
+                      <div className="fin-pbar">
+                        <div className="fin-pbar-fill" style={{ width: pctPaid + "%" }} />
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--muted)", marginTop: 3 }}>
+                        <span>Paid: {fmt(inv.paidAmount)} ({pctPaid}%)</span>
+                        {remaining > 0 && <span>Remaining: {fmt(remaining)}</span>}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="fin-card-foot">
@@ -341,6 +392,18 @@ export default function Invoices({
                     {inv.items.length} item{inv.items.length === 1 ? "" : "s"} · {inv.createdAt}
                   </span>
                   <div className="fin-card-acts">
+                    {needsPayment && (
+                      <button
+                        className="fin-pay-btn"
+                        onClick={() => setPayingInvoice(inv)}
+                        aria-label="Record payment"
+                        title="Record payment"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M12 2v20M2 12h20" />
+                        </svg>
+                      </button>
+                    )}
                     <select
                       className="fin-status-sel"
                       value={inv.status}
@@ -348,6 +411,7 @@ export default function Invoices({
                       aria-label="Invoice status"
                     >
                       <option value="unpaid">Unpaid</option>
+                      <option value="partial">Partial</option>
                       <option value="paid">Paid</option>
                       <option value="overdue">Overdue</option>
                     </select>
@@ -410,6 +474,123 @@ export default function Invoices({
           onCancel={() => setEditing(null)}
         />
       )}
+      {payingInvoice && (
+        <PaymentModal
+          invoice={payingInvoice}
+          onSubmit={onRecordPayment}
+          onCancel={() => setPayingInvoice(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function PaymentModal({
+  invoice,
+  onSubmit,
+  onCancel,
+}: {
+  invoice: Invoice;
+  onSubmit: (invoiceId: number, amount: number) => void | Promise<void>;
+  onCancel: () => void;
+}) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const remaining = invoice.total - invoice.paidAmount;
+  const [amount, setAmount] = useState(remaining);
+
+  const submit = async () => {
+    if (pending) return;
+    if (amount <= 0) {
+      setError("Amount must be greater than 0.");
+      return;
+    }
+    if (amount > remaining) {
+      setError(`Amount cannot exceed the remaining balance of ${fmt(remaining)}.`);
+      return;
+    }
+    setPending(true);
+    setError(null);
+    try {
+      await onSubmit(invoice.id, amount);
+      onCancel();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Could not record payment. Please try again."
+      );
+      setPending(false);
+    }
+  };
+
+  return (
+    <div className="mo open" onClick={onCancel}>
+      <div className="modal fin-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
+        <div className="m-title">Record Payment</div>
+
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 4 }}>
+            Invoice #{invoice.id} — {invoice.clientName}
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+            <span>Total: <strong>{fmt(invoice.total)}</strong></span>
+            <span>Paid: <strong>{fmt(invoice.paidAmount)}</strong></span>
+            <span>Remaining: <strong style={{ color: "var(--accent)" }}>{fmt(remaining)}</strong></span>
+          </div>
+        </div>
+
+        <div className="fg" style={{ marginBottom: 12 }}>
+          <label className="fl">Payment amount</label>
+          <div style={{ position: "relative" }}>
+            <span style={{
+              position: "absolute",
+              left: 12,
+              top: "50%",
+              transform: "translateY(-50%)",
+              color: "var(--muted)",
+              fontWeight: 600,
+              fontSize: 14,
+              pointerEvents: "none",
+            }}>$</span>
+            <input
+              className="fi"
+              type="number"
+              min={1}
+              max={remaining}
+              step={0.01}
+              value={amount / 100}
+              onChange={(e) => setAmount(Math.round(parseFloat(e.target.value || "0") * 100))}
+              style={{ paddingLeft: 26, fontSize: 16, fontWeight: 700, height: 42 }}
+              onFocus={(e) => e.target.select()}
+            />
+          </div>
+          <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+            {[0.25, 0.5, 0.75, 1].map((frac) => (
+              <button
+                key={frac}
+                type="button"
+                className="fin-pay-frac"
+                onClick={() => setAmount(Math.round(invoice.total * frac))}
+              >
+                {Math.round(frac * 100)}%
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {error && <div className="fin-form-error">{error}</div>}
+
+        <div className="m-acts">
+          <button type="button" className="btn bg" onClick={onCancel} disabled={pending}>
+            Cancel
+          </button>
+          <button type="button" className="btn bp" onClick={submit} disabled={pending}>
+            {pending && <span className="fin-spinner" aria-hidden="true" />}
+            {pending ? "Recording…" : `Record ${fmt(amount)}`}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -422,7 +603,7 @@ function InvoiceFormModal({
 }: {
   initial?: Invoice;
   onSubmit: (
-    data: Omit<Invoice, "id" | "createdAt" | "updatedAt" | "status">
+    data: Omit<Invoice, "id" | "createdAt" | "updatedAt" | "status" | "paidAmount">
   ) => void | Promise<void>;
   onSuccess: () => void;
   onCancel: () => void;

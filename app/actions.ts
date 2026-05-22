@@ -361,6 +361,7 @@ export async function updateInvoiceAction(input: {
   subtotal?: number;
   tax?: number;
   total?: number;
+  paidAmount?: number;
   status?: string;
   dueDate?: string;
   notes?: string;
@@ -374,6 +375,7 @@ export async function updateInvoiceAction(input: {
     if (input.subtotal !== undefined) patch.subtotal = input.subtotal;
     if (input.tax !== undefined) patch.tax = input.tax;
     if (input.total !== undefined) patch.total = input.total;
+    if (input.paidAmount !== undefined) patch.paidAmount = input.paidAmount;
     if (input.status !== undefined) patch.status = input.status;
     if (input.dueDate !== undefined) {
       const d = new Date(input.dueDate);
@@ -400,6 +402,32 @@ export async function deleteInvoiceAction(input: { id: number }) {
 }
 
 // ---------- Receipts ----------
+async function recalcInvoicePaidAmount(invoiceId: number) {
+  const rows = await db
+    .select({ paid: receipts.amount })
+    .from(receipts)
+    .where(eq(receipts.invoiceId, invoiceId));
+  const paidAmount = rows.reduce((s, r) => s + r.paid, 0);
+  const inv = await db
+    .select({ total: invoices.total, status: invoices.status })
+    .from(invoices)
+    .where(eq(invoices.id, invoiceId))
+    .limit(1);
+  if (!inv[0]) return;
+  let status: string;
+  if (paidAmount <= 0) {
+    status = "unpaid";
+  } else if (paidAmount >= inv[0].total) {
+    status = "paid";
+  } else {
+    status = "partial";
+  }
+  await db
+    .update(invoices)
+    .set({ paidAmount, status, updatedAt: new Date() })
+    .where(eq(invoices.id, invoiceId));
+}
+
 export async function createReceiptAction(input: {
   invoiceId: number;
   amount: number;
@@ -425,6 +453,7 @@ export async function createReceiptAction(input: {
         notes,
       })
       .returning();
+    await recalcInvoicePaidAmount(invoiceId);
     revalidatePath("/");
     return { id: inserted[0]?.id };
   } catch (err) {
@@ -448,7 +477,17 @@ export async function updateReceiptAction(input: {
     if (input.paymentMethod !== undefined) patch.paymentMethod = input.paymentMethod;
     if (input.transactionId !== undefined) patch.transactionId = input.transactionId;
     if (input.notes !== undefined) patch.notes = input.notes;
+    // Get the receipt's invoice ID before update (or use provided one)
+    const before = await db
+      .select({ invoiceId: receipts.invoiceId })
+      .from(receipts)
+      .where(eq(receipts.id, input.id))
+      .limit(1);
     await db.update(receipts).set(patch).where(eq(receipts.id, input.id));
+    const affectedInvoiceId = input.invoiceId ?? before[0]?.invoiceId;
+    if (affectedInvoiceId) {
+      await recalcInvoicePaidAmount(affectedInvoiceId);
+    }
     revalidatePath("/");
   } catch (err) {
     console.error("[updateReceiptAction]", err);
@@ -458,7 +497,15 @@ export async function updateReceiptAction(input: {
 
 export async function deleteReceiptAction(input: { id: number }) {
   try {
+    const before = await db
+      .select({ invoiceId: receipts.invoiceId })
+      .from(receipts)
+      .where(eq(receipts.id, input.id))
+      .limit(1);
     await db.delete(receipts).where(eq(receipts.id, input.id));
+    if (before[0]) {
+      await recalcInvoicePaidAmount(before[0].invoiceId);
+    }
     revalidatePath("/");
   } catch (err) {
     console.error("[deleteReceiptAction]", err);
