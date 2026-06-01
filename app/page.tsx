@@ -127,11 +127,13 @@ export default async function Page() {
 
   const initialInvoices = safeMap(allInvoices, "invoices", (i) => ({
     id: i.id,
+    invoiceNumber: i.invoiceNumber ?? "",
     clientName: i.clientName ?? "",
     clientEmail: i.clientEmail ?? "",
     clientAddress: i.clientAddress ?? "",
     items: Array.isArray(i.items) ? i.items : [],
     subtotal: i.subtotal ?? 0,
+    discount: i.discount ?? 0,
     tax: i.tax ?? 0,
     total: i.total ?? 0,
     paidAmount: i.paidAmount ?? 0,

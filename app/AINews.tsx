@@ -6,20 +6,28 @@ import { fetchAINewsAction, type NewsItem } from "./actions";
 const CATEGORIES: { key: string; label: string; match?: (n: NewsItem) => boolean }[] = [
   { key: "all", label: "All" },
   {
-    key: "claude",
-    label: "Claude",
-    match: (n) => /claude|anthropic/i.test(n.title),
-  },
-  {
-    key: "agents",
-    label: "Agents & systems",
+    key: "releases",
+    label: "Releases",
     match: (n) =>
-      /agent|tool[- ]?use|orchestrat|system|workflow|pipeline|MCP/i.test(n.title),
+      /release|launch|announc|new model|update|version|claude \d|gpt-?\d|gemini \d+|llama \d|sonnet|opus|haiku|mistral|o\d\b/i.test(
+        n.title
+      ),
   },
   {
-    key: "models",
-    label: "Models",
-    match: (n) => /opus|sonnet|haiku|gpt|llama|gemini|model/i.test(n.title),
+    key: "benchmarks",
+    label: "Benchmarks",
+    match: (n) =>
+      /benchmark|eval|leaderboard|arena|score|mmlu|swe-bench|humaneval|helm|compare|comparison|performance|test|rank/i.test(
+        n.title
+      ),
+  },
+  {
+    key: "research",
+    label: "Research",
+    match: (n) =>
+      /paper|arxiv|preprint|research|study|training|fine.?tun|alignment|safety|reasoning|rlhf|scaling|architecture/i.test(
+        n.title
+      ),
   },
 ];
 
@@ -79,8 +87,7 @@ export default function AINews() {
           <div>
             <div className="fin-hd-tit">AI News</div>
             <div className="fin-hd-sub">
-              Latest stories on Claude, Anthropic, and building agentic systems.
-              Sourced from Hacker News.
+              Model releases, benchmarks, and research — sourced from Hacker News.
             </div>
           </div>
         </div>

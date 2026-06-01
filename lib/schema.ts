@@ -100,11 +100,13 @@ export const quotes = taskerSchema.table("quotes", {
 
 export const invoices = taskerSchema.table("invoices", {
   id: serial("id").primaryKey(),
+  invoiceNumber: varchar("invoice_number", { length: 32 }).notNull().default(""),
   clientName: text("client_name").notNull(),
   clientEmail: text("client_email").notNull(),
   clientAddress: text("client_address").notNull().default(""),
-  items: jsonb("items").$type<Array<{ description: string; quantity: number; rate: number; amount: number }>>().notNull().default([]),
+  items: jsonb("items").$type<Array<{ description: string; quantity: number; rate: number; amount: number; discount?: number }>>().notNull().default([]),
   subtotal: integer("subtotal").notNull().default(0),
+  discount: integer("discount").notNull().default(0),
   tax: integer("tax").notNull().default(0),
   total: integer("total").notNull().default(0),
   paidAmount: integer("paid_amount").notNull().default(0),

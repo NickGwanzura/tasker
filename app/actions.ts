@@ -41,17 +41,21 @@ function assertInt(v: unknown, field: string, { min = 0, max = Number.MAX_SAFE_I
   if (v < min || v > max) throw new Error(`${field} out of range`);
   return v;
 }
-function assertItems(v: unknown): Array<{ description: string; quantity: number; rate: number; amount: number }> {
+function assertItems(v: unknown): Array<{ description: string; quantity: number; rate: number; amount: number; discount?: number }> {
   if (!Array.isArray(v)) throw new Error("items must be an array");
   return v.map((it, i) => {
     if (!it || typeof it !== "object") throw new Error(`items[${i}] invalid`);
     const o = it as Record<string, unknown>;
-    return {
+    const item: { description: string; quantity: number; rate: number; amount: number; discount?: number } = {
       description: assertString(o.description, `items[${i}].description`, { max: 1000 }),
       quantity: assertInt(o.quantity, `items[${i}].quantity`, { min: 0, max: 1_000_000 }),
       rate: assertInt(o.rate, `items[${i}].rate`, { min: 0, max: 1_000_000_000 }),
       amount: assertInt(o.amount, `items[${i}].amount`, { min: 0, max: 1_000_000_000 }),
     };
+    if (o.discount !== undefined && o.discount !== null) {
+      item.discount = assertInt(o.discount, `items[${i}].discount`, { min: 0, max: 100 });
+    }
+    return item;
   });
 }
 
@@ -311,8 +315,9 @@ export async function createInvoiceAction(input: {
   clientName: string;
   clientEmail: string;
   clientAddress: string;
-  items: Array<{ description: string; quantity: number; rate: number; amount: number }>;
+  items: Array<{ description: string; quantity: number; rate: number; amount: number; discount?: number }>;
   subtotal: number;
+  discount: number;
   tax: number;
   total: number;
   dueDate: string;
@@ -325,6 +330,7 @@ export async function createInvoiceAction(input: {
     const notes = assertString(input.notes, "notes", { max: 5000 });
     const items = assertItems(input.items);
     const subtotal = assertInt(input.subtotal, "subtotal", { min: 0 });
+    const discount = assertInt(input.discount ?? 0, "discount", { min: 0 });
     const tax = assertInt(input.tax, "tax", { min: 0 });
     const total = assertInt(input.total, "total", { min: 0 });
     const dueDateStr = assertString(input.dueDate, "dueDate", { min: 1, max: 64 });
@@ -338,14 +344,19 @@ export async function createInvoiceAction(input: {
         clientAddress,
         items,
         subtotal,
+        discount,
         tax,
         total,
         dueDate,
         notes,
       })
       .returning();
+    const id = inserted[0]?.id;
+    const year = new Date().getFullYear();
+    const invoiceNumber = `INV-${year}-${String(id).padStart(4, "0")}`;
+    await db.update(invoices).set({ invoiceNumber }).where(eq(invoices.id, id));
     revalidatePath("/");
-    return { id: inserted[0]?.id, status: inserted[0]?.status ?? "unpaid" };
+    return { id, status: inserted[0]?.status ?? "unpaid", invoiceNumber };
   } catch (err) {
     console.error("[createInvoiceAction]", err);
     throw new Error("createInvoiceAction failed: " + (err instanceof Error ? err.message : String(err)));
@@ -357,8 +368,9 @@ export async function updateInvoiceAction(input: {
   clientName?: string;
   clientEmail?: string;
   clientAddress?: string;
-  items?: Array<{ description: string; quantity: number; rate: number; amount: number }>;
+  items?: Array<{ description: string; quantity: number; rate: number; amount: number; discount?: number }>;
   subtotal?: number;
+  discount?: number;
   tax?: number;
   total?: number;
   paidAmount?: number;
@@ -373,6 +385,7 @@ export async function updateInvoiceAction(input: {
     if (input.clientAddress !== undefined) patch.clientAddress = input.clientAddress;
     if (input.items !== undefined) patch.items = input.items;
     if (input.subtotal !== undefined) patch.subtotal = input.subtotal;
+    if (input.discount !== undefined) patch.discount = input.discount;
     if (input.tax !== undefined) patch.tax = input.tax;
     if (input.total !== undefined) patch.total = input.total;
     if (input.paidAmount !== undefined) patch.paidAmount = input.paidAmount;
@@ -409,18 +422,19 @@ async function recalcInvoicePaidAmount(invoiceId: number) {
     .where(eq(receipts.invoiceId, invoiceId));
   const paidAmount = rows.reduce((s, r) => s + r.paid, 0);
   const inv = await db
-    .select({ total: invoices.total, status: invoices.status })
+    .select({ total: invoices.total, status: invoices.status, dueDate: invoices.dueDate })
     .from(invoices)
     .where(eq(invoices.id, invoiceId))
     .limit(1);
   if (!inv[0]) return;
+  const isPastDue = inv[0].dueDate && inv[0].dueDate < new Date();
   let status: string;
-  if (paidAmount <= 0) {
-    status = "unpaid";
-  } else if (paidAmount >= inv[0].total) {
+  if (paidAmount >= inv[0].total) {
     status = "paid";
-  } else {
+  } else if (paidAmount > 0) {
     status = "partial";
+  } else {
+    status = isPastDue ? "overdue" : "unpaid";
   }
   await db
     .update(invoices)
@@ -889,7 +903,7 @@ export async function fetchAINewsAction(): Promise<{
 }> {
   const fetchedAt = new Date().toISOString();
   try {
-    const queries = ["Claude", "Anthropic", "AI agent", "MCP"];
+    const queries = ["Claude", "GPT", "Gemini", "Llama", "LLM benchmark", "model release"];
     const results = await Promise.all(queries.map((q) => searchHN(q, 12)));
     const merged = new Map<string, HNHit>();
     for (const list of results) {

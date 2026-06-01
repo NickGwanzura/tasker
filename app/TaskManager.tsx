@@ -124,11 +124,13 @@ interface Quote {
 
 interface Invoice {
   id: number;
+  invoiceNumber: string;
   clientName: string;
   clientEmail: string;
   clientAddress: string;
-  items: Array<{ description: string; quantity: number; rate: number; amount: number }>;
+  items: Array<{ description: string; quantity: number; rate: number; amount: number; discount?: number }>;
   subtotal: number;
+  discount: number;
   tax: number;
   total: number;
   paidAmount: number;
@@ -1246,6 +1248,7 @@ export default function TaskManager({
         <div className={"page" + (page === "invoices" ? " active" : "")}>
           <Invoices
             initialInvoices={initialInvoices}
+            initialReceipts={initialReceipts}
             company={{
               companyName: appSettings.companyName,
               companyEmail: appSettings.companyEmail,
@@ -2141,6 +2144,11 @@ function TasksView({
                                 }
                               />
                             ))}
+                            {ct.length === 0 && (
+                              <div className="col-empty">
+                                {filterActive ? "No matches" : "No tasks"}
+                              </div>
+                            )}
                           </div>
                         </DroppableColumn>
                       );
@@ -2151,7 +2159,7 @@ function TasksView({
             })}
           </div>
           <DragOverlay dropAnimation={null}>
-            {activeDrag ? <Card task={activeDrag} onClick={() => {}} /> : null}
+            {activeDrag ? <Card task={activeDrag} onClick={() => {}} isOverlay /> : null}
           </DragOverlay>
         </DndContext>
       )}
@@ -2414,42 +2422,57 @@ function DraggableCard({
   );
 }
 
-function Card({ task, onClick }: { task: Task; onClick: () => void }) {
+function Card({ task, onClick, isOverlay }: { task: Task; onClick: () => void; isOverlay?: boolean }) {
+  const visibleTags = task.tags.slice(0, 3);
+  const extraTags = task.tags.length - visibleTags.length;
+  const hasDate = task.date && task.date !== "No date";
+  const hasComments = task.comments > 0;
+  const hasAttachments = task.attachments > 0;
+
   return (
-    <div className="card" onClick={onClick} role="button" tabIndex={0}
-      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }}>
+    <div
+      className={"card" + (isOverlay ? " card-overlay" : "")}
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }}
+    >
       <div className="c-tags">
         <span className={"tag " + PM[task.priority]}>{task.priority}</span>
-        {task.tags.map((x, i) => (
-          <span key={i} className={"tag " + (TM[x] || "tui")}>
-            {x}
-          </span>
+        {visibleTags.map((x, i) => (
+          <span key={i} className={"tag " + (TM[x] || "tui")}>{x}</span>
         ))}
+        {extraTags > 0 && (
+          <span className="tag tui" style={{ opacity: 0.65 }}>+{extraTags}</span>
+        )}
       </div>
       <div className="c-title">{task.title}</div>
-      <div className="c-desc">{task.desc}</div>
-      <div className="c-foot">
-        <div className="c-avs">
-          {[0, 1].map((i) => (
-            <div key={i} className="c-av" style={{ background: AVC[i] }}>
-              U
-            </div>
-          ))}
+      {task.desc ? <div className="c-desc">{task.desc}</div> : null}
+      {(hasDate || hasComments || hasAttachments) && (
+        <div className="c-foot">
+          {hasDate && (
+            <span className="c-date">{task.date}</span>
+          )}
+          <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 7 }}>
+            {hasComments && (
+              <span className="c-stat">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+                </svg>
+                {task.comments}
+              </span>
+            )}
+            {hasAttachments && (
+              <span className="c-stat">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66L9.64 16.34a2 2 0 01-2.83-2.83l8.49-8.48" />
+                </svg>
+                {task.attachments}
+              </span>
+            )}
+          </span>
         </div>
-        <span className="c-date">{task.date}</span>
-        <span className="c-stat" style={{ marginLeft: "auto" }}>
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
-          </svg>
-          {task.comments}
-        </span>
-        <span className="c-stat">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66L9.64 16.34a2 2 0 01-2.83-2.83l8.49-8.48" />
-          </svg>
-          +{task.attachments}
-        </span>
-      </div>
+      )}
     </div>
   );
 }

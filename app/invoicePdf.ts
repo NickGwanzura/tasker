@@ -46,25 +46,42 @@ function nl2br(s: string): string {
 export function buildInvoiceHtml(inv: Invoice, company: CompanyInfo): string {
   const accent = company.accentColor || "#3b5bdb";
   const fromName = company.companyName.trim() || company.displayName || "Your Company";
+  const invLabel = inv.invoiceNumber || `#${inv.id > 0 ? inv.id : "DRAFT"}`;
+
   const itemsHtml = inv.items
-    .map(
-      (it) => `
+    .map((it) => {
+      const discountBadge = it.discount && it.discount > 0
+        ? `<span style="font-size:9px;color:#888;margin-left:4px">${it.discount}% off</span>`
+        : "";
+      return `
         <tr>
-          <td>${escape(it.description)}</td>
+          <td>${escape(it.description)}${discountBadge}</td>
           <td class="num">${it.quantity}</td>
           <td class="num">${fmtMoney(it.rate)}</td>
           <td class="num">${fmtMoney(it.amount)}</td>
-        </tr>`
-    )
+        </tr>`;
+    })
     .join("");
+
+  const discountRow = inv.discount > 0
+    ? `<div class="tot-row"><span>Discount</span><span style="color:#c92a2a">− ${fmtMoney(inv.discount)}</span></div>`
+    : "";
+
+  const statusColors: Record<string, string> = {
+    paid: "background:#e3f9f5;color:#0ca678",
+    partial: "background:#fff4e6;color:#e8590c",
+    unpaid: "background:#fff3bf;color:#c2410c",
+    overdue: "background:#fff5f5;color:#c92a2a",
+  };
+  const statusStyle = statusColors[inv.status] || statusColors.unpaid;
 
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>Invoice #${inv.id} — ${escape(fromName)}</title>
+<title>${escape(invLabel)} — ${escape(fromName)}</title>
 <style>
-  @page { size: A4; margin: 18mm 16mm; }
+  @page { size: A4; margin: 16mm 14mm; }
   *, *::before, *::after { box-sizing: border-box; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -83,8 +100,8 @@ export function buildInvoiceHtml(inv: Invoice, company: CompanyInfo): string {
     background: #fafafa;
     border: 1px solid #e6e6e6;
     border-radius: 8px;
-    padding: 10px 12px;
-    margin-bottom: 18px;
+    padding: 10px 14px;
+    margin-bottom: 20px;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -94,7 +111,7 @@ export function buildInvoiceHtml(inv: Invoice, company: CompanyInfo): string {
     background: ${accent};
     color: #fff;
     border: none;
-    padding: 8px 14px;
+    padding: 8px 16px;
     border-radius: 6px;
     cursor: pointer;
     font-weight: 600;
@@ -105,135 +122,188 @@ export function buildInvoiceHtml(inv: Invoice, company: CompanyInfo): string {
     color: #333;
     border: 1px solid #d0d0d0;
   }
-  .toolbar .hint { color: #666; margin-left: auto; }
+  .toolbar .hint { color: #666; margin-left: auto; font-size: 11px; }
   @media print { .toolbar { display: none; } body { padding: 0; } }
-  .sheet { max-width: 760px; margin: 0 auto; }
+
+  .sheet { max-width: 780px; margin: 0 auto; }
+
+  /* ── Header band ── */
   .head {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    gap: 24px;
-    margin-bottom: 28px;
-    padding-bottom: 18px;
-    border-bottom: 2px solid ${accent};
+    gap: 32px;
+    padding-bottom: 20px;
+    margin-bottom: 24px;
+    border-bottom: 3px solid ${accent};
   }
-  .from h1 {
-    font-size: 22px;
+  .from-name {
+    font-size: 20px;
     font-weight: 800;
-    margin: 0 0 6px;
-    letter-spacing: -0.02em;
     color: #0f1120;
+    letter-spacing: -0.02em;
+    margin: 0 0 6px;
   }
-  .from .muted { color: #555; font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; }
-  .meta { text-align: right; }
-  .meta .label {
+  .from-detail { color: #555; font-size: 11.5px; line-height: 1.6; white-space: pre-wrap; }
+
+  /* Invoice meta (right side) */
+  .inv-meta { text-align: right; min-width: 200px; }
+  .inv-meta-tag {
     font-size: 10px;
     text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: #888;
+    letter-spacing: 0.12em;
+    color: #aaa;
+    font-weight: 600;
+    margin-bottom: 2px;
   }
-  .meta .num {
-    font-size: 24px;
+  .inv-number {
+    font-size: 26px;
     font-weight: 800;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.03em;
     color: ${accent};
-    margin: 2px 0 12px;
+    margin-bottom: 10px;
   }
-  .meta .row { font-size: 11.5px; color: #444; margin: 2px 0; }
-  .meta .row strong { color: #111; }
-  .status {
+  .inv-date-row { font-size: 11.5px; color: #444; margin: 3px 0; }
+  .inv-date-row strong { color: #111; }
+  .status-badge {
     display: inline-block;
     margin-top: 8px;
-    padding: 3px 10px;
+    padding: 4px 12px;
     border-radius: 999px;
-    font-size: 10.5px;
+    font-size: 10px;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
+    ${statusStyle};
   }
-  .status.paid { background: #e3f9f5; color: #0ca678; }
-  .status.partial { background: #fff4e6; color: #e8590c; }
-  .status.unpaid { background: #fff3bf; color: #c2410c; }
-  .status.overdue { background: #fff5f5; color: #c92a2a; }
+
+  /* ── Parties ── */
   .parties {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 24px;
     margin-bottom: 24px;
+    padding: 16px 20px;
+    background: #f8f9fc;
+    border-radius: 10px;
   }
-  .parties h3 {
-    font-size: 10px;
+  .party-label {
+    font-size: 9.5px;
     text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: #888;
-    margin: 0 0 6px;
+    letter-spacing: 0.12em;
+    color: #999;
+    font-weight: 700;
+    margin-bottom: 5px;
   }
-  .parties .name { font-weight: 700; font-size: 14px; color: #0f1120; }
-  .parties .lines { color: #444; font-size: 11.5px; white-space: pre-wrap; }
+  .party-name { font-weight: 700; font-size: 14px; color: #0f1120; }
+  .party-line { color: #555; font-size: 11.5px; white-space: pre-wrap; margin-top: 2px; }
+
+  /* ── Items table ── */
   table.items {
     width: 100%;
     border-collapse: collapse;
-    margin-bottom: 18px;
+    margin-bottom: 0;
     font-size: 12px;
   }
   table.items thead th {
-    background: #f5f6fb;
+    background: ${accent};
+    color: #fff;
     text-align: left;
-    font-size: 10.5px;
+    font-size: 10px;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: #555;
+    letter-spacing: 0.08em;
     font-weight: 700;
-    padding: 10px 12px;
-    border-bottom: 1px solid #e6e6e6;
+    padding: 9px 12px;
   }
   table.items thead th.num { text-align: right; }
+  table.items tbody tr:nth-child(even) { background: #f8f9fc; }
   table.items tbody td {
-    padding: 11px 12px;
+    padding: 10px 12px;
     border-bottom: 1px solid #eee;
     vertical-align: top;
   }
   table.items tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
-  .totals {
-    width: 280px;
-    margin-left: auto;
+  table.items tbody tr:last-child td { border-bottom: none; }
+
+  /* ── Totals ── */
+  .totals-wrap {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 0;
+    border: 1px solid #e6e6e6;
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    overflow: hidden;
     margin-bottom: 24px;
   }
-  .totals .row {
+  .totals {
+    width: 300px;
+    padding: 14px 16px 10px;
+    background: #fafbff;
+  }
+  .tot-row {
     display: flex;
     justify-content: space-between;
-    padding: 6px 0;
+    padding: 5px 0;
     font-size: 12px;
-    color: #444;
+    color: #555;
   }
-  .totals .row.total {
-    border-top: 1.5px solid #111;
-    margin-top: 6px;
+  .tot-row.grand {
+    border-top: 2px solid ${accent};
+    margin-top: 8px;
     padding-top: 10px;
-    font-size: 15px;
+    font-size: 16px;
     font-weight: 800;
     color: #0f1120;
   }
-  .notes {
-    margin-top: 24px;
-    padding-top: 14px;
-    border-top: 1px solid #eee;
+  .tot-row.grand span:last-child { color: ${accent}; }
+
+  /* ── Payment progress ── */
+  .payment-section {
+    margin-bottom: 20px;
+    padding: 14px 16px;
+    background: #f0faf5;
+    border: 1px solid #b2f2d6;
+    border-radius: 8px;
   }
-  .notes h3 {
+  .payment-section h4 {
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    color: #888;
+    color: #0ca678;
+    font-weight: 700;
+    margin: 0 0 8px;
+  }
+  .pbar-wrap { height: 6px; background: #c3fae8; border-radius: 99px; overflow: hidden; margin: 6px 0 4px; }
+  .pbar-fill { height: 100%; background: #0ca678; border-radius: 99px; }
+  .pbar-labels { display: flex; justify-content: space-between; font-size: 10.5px; color: #0ca678; font-weight: 600; }
+
+  /* ── Notes ── */
+  .notes {
+    margin-bottom: 24px;
+    padding: 14px 16px;
+    background: #fffbe6;
+    border: 1px solid #ffe066;
+    border-radius: 8px;
+  }
+  .notes h4 {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #c2410c;
+    font-weight: 700;
     margin: 0 0 6px;
   }
   .notes p { margin: 0; color: #444; white-space: pre-wrap; font-size: 11.5px; }
+
+  /* ── Footer ── */
   .footer {
-    margin-top: 36px;
     padding-top: 14px;
     border-top: 1px dashed #ccc;
-    font-size: 10.5px;
-    color: #888;
+    font-size: 10px;
+    color: #aaa;
     text-align: center;
+    letter-spacing: 0.03em;
   }
 </style>
 </head>
@@ -241,55 +311,41 @@ export function buildInvoiceHtml(inv: Invoice, company: CompanyInfo): string {
   <div class="toolbar" id="invoice-toolbar">
     <button onclick="window.print()">Save as PDF / Print</button>
     <button class="secondary" onclick="window.close()">Close</button>
-    <span class="hint">In the print dialog choose “Save as PDF” to download.</span>
+    <span class="hint">In the print dialog, choose "Save as PDF" to download.</span>
   </div>
 
   <div class="sheet">
     <div class="head">
       <div class="from">
-        <h1>${escape(fromName)}</h1>
-        <div class="muted">${nl2br(company.companyAddress)}</div>
-        ${
-          company.companyEmail
-            ? `<div class="muted">${escape(company.companyEmail)}</div>`
-            : ""
-        }
-        ${
-          company.companyPhone
-            ? `<div class="muted">${escape(company.companyPhone)}</div>`
-            : ""
-        }
-        ${
-          company.companyWebsite
-            ? `<div class="muted">${escape(company.companyWebsite)}</div>`
-            : ""
-        }
-        ${
-          company.companyTaxId
-            ? `<div class="muted">Tax ID: ${escape(company.companyTaxId)}</div>`
-            : ""
-        }
+        <div class="from-name">${escape(fromName)}</div>
+        ${company.companyAddress ? `<div class="from-detail">${nl2br(company.companyAddress)}</div>` : ""}
+        ${company.companyEmail ? `<div class="from-detail">${escape(company.companyEmail)}</div>` : ""}
+        ${company.companyPhone ? `<div class="from-detail">${escape(company.companyPhone)}</div>` : ""}
+        ${company.companyWebsite ? `<div class="from-detail">${escape(company.companyWebsite)}</div>` : ""}
+        ${company.companyTaxId ? `<div class="from-detail">Tax ID: ${escape(company.companyTaxId)}</div>` : ""}
       </div>
-      <div class="meta">
-        <div class="label">Invoice</div>
-        <div class="num">#${inv.id > 0 ? inv.id : "—"}</div>
-        <div class="row"><strong>Issued:</strong> ${fmtDate(inv.createdAt && /^\d{4}-/.test(inv.createdAt) ? inv.createdAt : new Date().toISOString())}</div>
-        <div class="row"><strong>Due:</strong> ${fmtDate(inv.dueDate)}</div>
-        <span class="status ${escape(inv.status)}">${escape(inv.status)}</span>
+      <div class="inv-meta">
+        <div class="inv-meta-tag">Invoice</div>
+        <div class="inv-number">${escape(invLabel)}</div>
+        <div class="inv-date-row"><strong>Issued:</strong> ${fmtDate(inv.createdAt && /^\d{4}-/.test(inv.createdAt) ? inv.createdAt : new Date().toISOString())}</div>
+        <div class="inv-date-row"><strong>Due:</strong> ${fmtDate(inv.dueDate)}</div>
+        <div><span class="status-badge">${escape(inv.status)}</span></div>
       </div>
     </div>
 
     <div class="parties">
       <div>
-        <h3>Bill to</h3>
-        <div class="name">${escape(inv.clientName) || "—"}</div>
-        ${inv.clientEmail ? `<div class="lines">${escape(inv.clientEmail)}</div>` : ""}
-        ${inv.clientAddress ? `<div class="lines">${nl2br(inv.clientAddress)}</div>` : ""}
+        <div class="party-label">Bill to</div>
+        <div class="party-name">${escape(inv.clientName) || "—"}</div>
+        ${inv.clientEmail ? `<div class="party-line">${escape(inv.clientEmail)}</div>` : ""}
+        ${inv.clientAddress ? `<div class="party-line">${nl2br(inv.clientAddress)}</div>` : ""}
       </div>
       <div>
-        <h3>Summary</h3>
-        <div class="lines">${inv.items.length} line item${inv.items.length === 1 ? "" : "s"}</div>
-        <div class="lines"><strong>${fmtMoney(inv.total)}</strong> due</div>
+        <div class="party-label">Summary</div>
+        <div class="party-line">${inv.items.length} line item${inv.items.length === 1 ? "" : "s"}</div>
+        <div class="party-line" style="font-size:15px;font-weight:700;color:#0f1120;margin-top:4px">${fmtMoney(inv.total)}</div>
+        ${inv.paidAmount > 0 ? `<div class="party-line" style="color:#0ca678">${fmtMoney(inv.paidAmount)} received</div>` : ""}
+        ${inv.total > inv.paidAmount ? `<div class="party-line" style="color:#c2410c;font-weight:600">${fmtMoney(inv.total - inv.paidAmount)} outstanding</div>` : ""}
       </div>
     </div>
 
@@ -307,24 +363,38 @@ export function buildInvoiceHtml(inv: Invoice, company: CompanyInfo): string {
       </tbody>
     </table>
 
-    <div class="totals">
-      <div class="row"><span>Subtotal</span><span>${fmtMoney(inv.subtotal)}</span></div>
-      <div class="row"><span>Tax</span><span>${fmtMoney(inv.tax)}</span></div>
-      <div class="row total"><span>Total</span><span>${fmtMoney(inv.total)}</span></div>
+    <div class="totals-wrap">
+      <div class="totals">
+        <div class="tot-row"><span>Subtotal</span><span>${fmtMoney(inv.subtotal)}</span></div>
+        ${discountRow}
+        <div class="tot-row"><span>Tax</span><span>${fmtMoney(inv.tax)}</span></div>
+        <div class="tot-row grand"><span>Total</span><span>${fmtMoney(inv.total)}</span></div>
+      </div>
     </div>
 
-    ${
-      inv.notes
-        ? `<div class="notes"><h3>Notes</h3><p>${nl2br(inv.notes)}</p></div>`
-        : ""
-    }
+    ${inv.paidAmount > 0 && inv.status !== "paid" ? `
+    <div class="payment-section">
+      <h4>Payment progress</h4>
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:#555">
+        <span>Paid <strong style="color:#0ca678">${fmtMoney(inv.paidAmount)}</strong></span>
+        <span>Remaining <strong style="color:#c2410c">${fmtMoney(inv.total - inv.paidAmount)}</strong></span>
+      </div>
+      <div class="pbar-wrap"><div class="pbar-fill" style="width:${inv.total > 0 ? Math.round((inv.paidAmount / inv.total) * 100) : 0}%"></div></div>
+      <div class="pbar-labels"><span>${inv.total > 0 ? Math.round((inv.paidAmount / inv.total) * 100) : 0}% paid</span><span>Balance due ${fmtDate(inv.dueDate)}</span></div>
+    </div>` : ""}
+
+    ${inv.notes ? `
+    <div class="notes">
+      <h4>Notes</h4>
+      <p>${nl2br(inv.notes)}</p>
+    </div>` : ""}
 
     <div class="footer">
-      Thank you for your business — ${escape(fromName)}
+      Thank you for your business &mdash; ${escape(fromName)}
+      ${company.companyEmail ? ` &bull; ${escape(company.companyEmail)}` : ""}
     </div>
   </div>
   <script>
-    // Auto-trigger print dialog after a short delay so layout settles.
     window.addEventListener('load', function() {
       setTimeout(function(){ try { window.print(); } catch (e) {} }, 350);
     });
@@ -337,12 +407,12 @@ export function downloadInvoicePdf(inv: Invoice, company: CompanyInfo) {
   const html = buildInvoiceHtml(inv, company);
   const win = window.open("", "_blank", "width=900,height=1200");
   if (!win) {
-    // Fallback: download as HTML if popup blocked
     const blob = new Blob([html], { type: "text/html" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `invoice-${inv.id || "draft"}.html`;
+    const label = inv.invoiceNumber || `invoice-${inv.id || "draft"}`;
+    a.download = `${label}.html`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -352,7 +422,8 @@ export function downloadInvoicePdf(inv: Invoice, company: CompanyInfo) {
     );
     return;
   }
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
+  const blob = new Blob([html], { type: "text/html" });
+  const url = URL.createObjectURL(blob);
+  win.location.href = url;
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
