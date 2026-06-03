@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq, desc, asc } from "drizzle-orm";
+import { eq, desc, asc, sql } from "drizzle-orm";
 import { db, hasDatabase, schema } from "@/lib/db";
 
 const {
@@ -37,6 +37,23 @@ function defaultSettings(): typeof settings.$inferSelect {
     companyWebsite: "",
     updatedAt: new Date(),
   } as typeof settings.$inferSelect;
+}
+
+async function ensureInvoiceSchema() {
+  if (!hasDatabase) return;
+  await db.execute(sql`
+    ALTER TABLE "tasker"."invoices"
+    ADD COLUMN IF NOT EXISTS "invoice_number" varchar(32) DEFAULT '' NOT NULL
+  `);
+  await db.execute(sql`
+    ALTER TABLE "tasker"."invoices"
+    ADD COLUMN IF NOT EXISTS "discount" integer DEFAULT 0 NOT NULL
+  `);
+  await db.execute(sql`
+    UPDATE "tasker"."invoices"
+    SET "invoice_number" = 'INV-' || TO_CHAR("created_at", 'YYYY') || '-' || LPAD("id"::text, 4, '0')
+    WHERE "invoice_number" = ''
+  `);
 }
 
 type ColKey = "todo" | "inprogress" | "inreview" | "done";
@@ -335,6 +352,7 @@ export async function deleteQuoteAction(input: { id: number }) {
 
 export async function convertQuoteToInvoiceAction(input: { id: number; dueDate?: string }) {
   try {
+    await ensureInvoiceSchema();
     const id = assertInt(input.id, "id", { min: 1 });
     const rows = await db.select().from(quotes).where(eq(quotes.id, id)).limit(1);
     const quote = rows[0];
@@ -387,6 +405,7 @@ export async function createInvoiceAction(input: {
   notes: string;
 }) {
   try {
+    await ensureInvoiceSchema();
     const clientName = assertString(input.clientName, "clientName", { min: 1, max: 200 });
     const clientEmail = assertString(input.clientEmail, "clientEmail", { max: 200 });
     const clientAddress = assertString(input.clientAddress, "clientAddress", { max: 1000 });
