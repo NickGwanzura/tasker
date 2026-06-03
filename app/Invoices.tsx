@@ -7,10 +7,11 @@ import {
   deleteInvoiceAction,
   createReceiptAction,
 } from "./actions";
-import { downloadInvoicePdf, type CompanyInfo } from "./invoicePdf";
+import { downloadInvoicePdf, previewInvoice, type CompanyInfo } from "./invoicePdf";
 
 export type InvoiceItem = {
   description: string;
+  details?: string;
   quantity: number;
   rate: number;
   amount: number;
@@ -96,7 +97,7 @@ function daysOverdue(dueDate: string): number {
 }
 
 function emptyItem(): InvoiceItem {
-  return { description: "", quantity: 1, rate: 0, amount: 0, discount: 0 };
+  return { description: "", details: "", quantity: 1, rate: 0, amount: 0, discount: 0 };
 }
 
 function calcTotals(items: InvoiceItem[], taxPct: number, invoiceDiscount = 0) {
@@ -489,6 +490,17 @@ export default function Invoices({
                     </select>
                     <button
                       className="fin-icon-btn"
+                      onClick={() => previewInvoice(inv, company)}
+                      aria-label="Preview invoice"
+                      title="Preview invoice"
+                    >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                    </button>
+                    <button
+                      className="fin-icon-btn"
                       onClick={() => downloadInvoicePdf(inv, company)}
                       aria-label="Download PDF"
                       title="Download PDF"
@@ -737,7 +749,7 @@ function InvoiceFormModal({
       new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
   );
   const [items, setItems] = useState<InvoiceItem[]>(
-    initial?.items?.length ? initial.items.map((it) => ({ ...it, discount: it.discount ?? 0 })) : [emptyItem()]
+    initial?.items?.length ? initial.items.map((it) => ({ ...it, details: it.details ?? "", discount: it.discount ?? 0 })) : [emptyItem()]
   );
   const [taxPct, setTaxPct] = useState<number>(() => {
     if (!initial || initial.subtotal === 0) return 0;
@@ -862,22 +874,30 @@ function InvoiceFormModal({
         <div className="fin-form-sec">
           <div className="fin-form-sec-tit">Line items</div>
           <div className="fin-items">
-            <div className="fin-item-hd" style={{ gridTemplateColumns: "1fr 60px 90px 60px 90px 28px" }}>
-              <span>Description</span>
+            <div className="fin-item-hd">
+              <span>Line item</span>
               <span>Qty</span>
-              <span>Rate (¢)</span>
+              <span>Rate</span>
               <span>Disc.%</span>
               <span style={{ textAlign: "right" }}>Amount</span>
               <span />
             </div>
             {items.map((it, i) => (
-              <div className="fin-item-row" key={i} style={{ gridTemplateColumns: "1fr 60px 90px 60px 90px 28px" }}>
-                <input
-                  className="fi"
-                  value={it.description}
-                  onChange={(e) => updateItem(i, { description: e.target.value })}
-                  placeholder="Service or product"
-                />
+              <div className="fin-item-row" key={i}>
+                <div className="fin-item-desc">
+                  <input
+                    className="fi"
+                    value={it.description}
+                    onChange={(e) => updateItem(i, { description: e.target.value })}
+                    placeholder="Service or product"
+                  />
+                  <textarea
+                    className="ft fin-item-details"
+                    value={it.details ?? ""}
+                    onChange={(e) => updateItem(i, { details: e.target.value })}
+                    placeholder="Description"
+                  />
+                </div>
                 <input
                   className="fi"
                   type="number"
@@ -889,8 +909,9 @@ function InvoiceFormModal({
                   className="fi"
                   type="number"
                   min={0}
-                  value={it.rate}
-                  onChange={(e) => updateItem(i, { rate: Number(e.target.value) || 0 })}
+                  step={0.01}
+                  value={it.rate / 100}
+                  onChange={(e) => updateItem(i, { rate: Math.round(parseFloat(e.target.value || "0") * 100) })}
                 />
                 <input
                   className="fi"

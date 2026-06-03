@@ -1242,7 +1242,19 @@ export default function TaskManager({
         </div>
 
         <div className={"page" + (page === "quotes" ? " active" : "")}>
-          <Quotes initialQuotes={initialQuotes} />
+          <Quotes
+            initialQuotes={initialQuotes}
+            company={{
+              companyName: appSettings.companyName,
+              companyEmail: appSettings.companyEmail,
+              companyPhone: appSettings.companyPhone,
+              companyAddress: appSettings.companyAddress,
+              companyTaxId: appSettings.companyTaxId,
+              companyWebsite: appSettings.companyWebsite,
+              displayName: appSettings.displayName,
+              accentColor: appSettings.accentColor,
+            }}
+          />
         </div>
 
         <div className={"page" + (page === "invoices" ? " active" : "")}>
@@ -1266,6 +1278,16 @@ export default function TaskManager({
           <Receipts
             initialReceipts={initialReceipts}
             invoices={initialInvoices}
+            company={{
+              companyName: appSettings.companyName,
+              companyEmail: appSettings.companyEmail,
+              companyPhone: appSettings.companyPhone,
+              companyAddress: appSettings.companyAddress,
+              companyTaxId: appSettings.companyTaxId,
+              companyWebsite: appSettings.companyWebsite,
+              displayName: appSettings.displayName,
+              accentColor: appSettings.accentColor,
+            }}
           />
         </div>
 

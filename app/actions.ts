@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { eq, desc, asc } from "drizzle-orm";
-import { db, schema } from "@/lib/db";
+import { db, hasDatabase, schema } from "@/lib/db";
 
 const {
   projects,
@@ -18,6 +18,26 @@ const {
   subscriptionPayments,
 } = schema;
 const SETTINGS_ID = "default";
+
+function defaultSettings(): typeof settings.$inferSelect {
+  return {
+    id: SETTINGS_ID,
+    displayName: "Nicholas Gwanzura",
+    planLabel: "Pro plan",
+    theme: "light",
+    accentColor: "#3b5bdb",
+    defaultPriority: "Medium",
+    defaultColumn: "todo",
+    density: "comfortable",
+    companyName: "",
+    companyEmail: "",
+    companyPhone: "",
+    companyAddress: "",
+    companyTaxId: "",
+    companyWebsite: "",
+    updatedAt: new Date(),
+  } as typeof settings.$inferSelect;
+}
 
 type ColKey = "todo" | "inprogress" | "inreview" | "done";
 
@@ -41,17 +61,20 @@ function assertInt(v: unknown, field: string, { min = 0, max = Number.MAX_SAFE_I
   if (v < min || v > max) throw new Error(`${field} out of range`);
   return v;
 }
-function assertItems(v: unknown): Array<{ description: string; quantity: number; rate: number; amount: number; discount?: number }> {
+function assertItems(v: unknown): Array<{ description: string; details?: string; quantity: number; rate: number; amount: number; discount?: number }> {
   if (!Array.isArray(v)) throw new Error("items must be an array");
   return v.map((it, i) => {
     if (!it || typeof it !== "object") throw new Error(`items[${i}] invalid`);
     const o = it as Record<string, unknown>;
-    const item: { description: string; quantity: number; rate: number; amount: number; discount?: number } = {
+    const item: { description: string; details?: string; quantity: number; rate: number; amount: number; discount?: number } = {
       description: assertString(o.description, `items[${i}].description`, { max: 1000 }),
       quantity: assertInt(o.quantity, `items[${i}].quantity`, { min: 0, max: 1_000_000 }),
       rate: assertInt(o.rate, `items[${i}].rate`, { min: 0, max: 1_000_000_000 }),
       amount: assertInt(o.amount, `items[${i}].amount`, { min: 0, max: 1_000_000_000 }),
     };
+    if (o.details !== undefined && o.details !== null) {
+      item.details = assertString(o.details, `items[${i}].details`, { max: 2000 });
+    }
     if (o.discount !== undefined && o.discount !== null) {
       item.discount = assertInt(o.discount, `items[${i}].discount`, { min: 0, max: 100 });
     }
@@ -233,7 +256,7 @@ export async function createQuoteAction(input: {
   clientName: string;
   clientEmail: string;
   clientAddress: string;
-  items: Array<{ description: string; quantity: number; rate: number; amount: number }>;
+  items: Array<{ description: string; details?: string; quantity: number; rate: number; amount: number }>;
   subtotal: number;
   tax: number;
   total: number;
@@ -274,7 +297,7 @@ export async function updateQuoteAction(input: {
   clientName?: string;
   clientEmail?: string;
   clientAddress?: string;
-  items?: Array<{ description: string; quantity: number; rate: number; amount: number }>;
+  items?: Array<{ description: string; details?: string; quantity: number; rate: number; amount: number }>;
   subtotal?: number;
   tax?: number;
   total?: number;
@@ -310,12 +333,52 @@ export async function deleteQuoteAction(input: { id: number }) {
   }
 }
 
+export async function convertQuoteToInvoiceAction(input: { id: number; dueDate?: string }) {
+  try {
+    const id = assertInt(input.id, "id", { min: 1 });
+    const rows = await db.select().from(quotes).where(eq(quotes.id, id)).limit(1);
+    const quote = rows[0];
+    if (!quote) throw new Error("Quote not found");
+
+    const dueDate = input.dueDate
+      ? new Date(input.dueDate)
+      : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+    if (isNaN(dueDate.getTime())) throw new Error("Invalid dueDate");
+
+    const inserted = await db
+      .insert(invoices)
+      .values({
+        clientName: quote.clientName,
+        clientEmail: quote.clientEmail,
+        clientAddress: quote.clientAddress,
+        items: quote.items,
+        subtotal: quote.subtotal,
+        discount: 0,
+        tax: quote.tax,
+        total: quote.total,
+        dueDate,
+        notes: quote.notes,
+      })
+      .returning();
+    const invoiceId = inserted[0]?.id;
+    const year = new Date().getFullYear();
+    const invoiceNumber = `INV-${year}-${String(invoiceId).padStart(4, "0")}`;
+    await db.update(invoices).set({ invoiceNumber }).where(eq(invoices.id, invoiceId));
+    await db.update(quotes).set({ status: "accepted", updatedAt: new Date() }).where(eq(quotes.id, id));
+    revalidatePath("/");
+    return { id: invoiceId, invoiceNumber, status: "unpaid" };
+  } catch (err) {
+    console.error("[convertQuoteToInvoiceAction]", err);
+    throw new Error("convertQuoteToInvoiceAction failed: " + (err instanceof Error ? err.message : String(err)));
+  }
+}
+
 // ---------- Invoices ----------
 export async function createInvoiceAction(input: {
   clientName: string;
   clientEmail: string;
   clientAddress: string;
-  items: Array<{ description: string; quantity: number; rate: number; amount: number; discount?: number }>;
+  items: Array<{ description: string; details?: string; quantity: number; rate: number; amount: number; discount?: number }>;
   subtotal: number;
   discount: number;
   tax: number;
@@ -368,7 +431,7 @@ export async function updateInvoiceAction(input: {
   clientName?: string;
   clientEmail?: string;
   clientAddress?: string;
-  items?: Array<{ description: string; quantity: number; rate: number; amount: number; discount?: number }>;
+  items?: Array<{ description: string; details?: string; quantity: number; rate: number; amount: number; discount?: number }>;
   subtotal?: number;
   discount?: number;
   tax?: number;
@@ -540,6 +603,22 @@ async function safeSelect<T>(label: string, fn: () => Promise<T[]>): Promise<T[]
 }
 
 export async function loadAllData() {
+  if (!hasDatabase) {
+    return {
+      allProjects: [],
+      allTasks: [],
+      allDocs: [],
+      allActivities: [],
+      allPrompts: [],
+      appSettings: defaultSettings(),
+      allQuotes: [],
+      allInvoices: [],
+      allReceipts: [],
+      allSubscriptions: [],
+      allSubscriptionPayments: [],
+    };
+  }
+
   const [
     allProjects,
     allTasks,
@@ -584,23 +663,7 @@ export async function loadAllData() {
     }
   }
   if (!appSettings) {
-    appSettings = {
-      id: SETTINGS_ID,
-      displayName: "Nicholas Gwanzura",
-      planLabel: "Pro plan",
-      theme: "light",
-      accentColor: "#3b5bdb",
-      defaultPriority: "Medium",
-      defaultColumn: "todo",
-      density: "comfortable",
-      companyName: "",
-      companyEmail: "",
-      companyPhone: "",
-      companyAddress: "",
-      companyTaxId: "",
-      companyWebsite: "",
-      updatedAt: new Date(),
-    } as typeof settings.$inferSelect;
+    appSettings = defaultSettings();
   }
   return {
     allProjects,

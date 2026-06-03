@@ -1,14 +1,19 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   createQuoteAction,
   updateQuoteAction,
   deleteQuoteAction,
+  convertQuoteToInvoiceAction,
 } from "./actions";
+import { downloadQuotePdf, previewQuote } from "./quotePdf";
+import type { CompanyInfo } from "./invoicePdf";
 
 export type QuoteItem = {
   description: string;
+  details?: string;
   quantity: number;
   rate: number;
   amount: number;
@@ -45,7 +50,7 @@ function fmt(cents: number) {
 }
 
 function emptyItem(): QuoteItem {
-  return { description: "", quantity: 1, rate: 0, amount: 0 };
+  return { description: "", details: "", quantity: 1, rate: 0, amount: 0 };
 }
 
 function calcTotals(items: QuoteItem[], taxPct: number) {
@@ -54,13 +59,21 @@ function calcTotals(items: QuoteItem[], taxPct: number) {
   return { subtotal, tax, total: subtotal + tax };
 }
 
-export default function Quotes({ initialQuotes }: { initialQuotes: Quote[] }) {
+export default function Quotes({
+  initialQuotes,
+  company,
+}: {
+  initialQuotes: Quote[];
+  company: CompanyInfo;
+}) {
+  const router = useRouter();
   const [quotes, setQuotes] = useState<Quote[]>(initialQuotes);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Quote | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [topError, setTopError] = useState<string | null>(null);
+  const [convertingId, setConvertingId] = useState<number | null>(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -154,6 +167,28 @@ export default function Quotes({ initialQuotes }: { initialQuotes: Quote[] }) {
       console.error("deleteQuoteAction failed:", err);
       setQuotes(before);
       setTopError("Could not delete quote.");
+    }
+  };
+
+  const onConvertToInvoice = async (quote: Quote) => {
+    if (quote.id <= 0 || convertingId !== null) return;
+    setTopError(null);
+    setConvertingId(quote.id);
+    const before = quotes.find((q) => q.id === quote.id);
+    setQuotes((prev) =>
+      prev.map((q) => (q.id === quote.id ? { ...q, status: "accepted" } : q))
+    );
+    try {
+      await convertQuoteToInvoiceAction({ id: quote.id });
+      router.refresh();
+    } catch (err) {
+      console.error("convertQuoteToInvoiceAction failed:", err);
+      if (before) {
+        setQuotes((prev) => prev.map((q) => (q.id === quote.id ? before : q)));
+      }
+      setTopError("Could not convert quote to invoice.");
+    } finally {
+      setConvertingId(null);
     }
   };
 
@@ -283,6 +318,48 @@ export default function Quotes({ initialQuotes }: { initialQuotes: Quote[] }) {
                   </select>
                   <button
                     className="fin-icon-btn"
+                    onClick={() => onConvertToInvoice(q)}
+                    aria-label="Convert to invoice"
+                    title="Convert to invoice"
+                    disabled={q.id <= 0 || convertingId === q.id}
+                  >
+                    {convertingId === q.id ? (
+                      <span className="fin-spinner" aria-hidden="true" />
+                    ) : (
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <polyline points="14 2 14 8 20 8" />
+                        <path d="M8 13h7" />
+                        <path d="m12 10 3 3-3 3" />
+                      </svg>
+                    )}
+                  </button>
+                  <button
+                    className="fin-icon-btn"
+                    onClick={() => previewQuote(q, company)}
+                    aria-label="Preview quote"
+                    title="Preview quote"
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  </button>
+                  <button
+                    className="fin-icon-btn"
+                    onClick={() => downloadQuotePdf(q, company)}
+                    aria-label="Download PDF"
+                    title="Download PDF"
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                      <line x1="12" y1="18" x2="12" y2="12" />
+                      <polyline points="9 15 12 18 15 15" />
+                    </svg>
+                  </button>
+                  <button
+                    className="fin-icon-btn"
                     onClick={() => setEditing(q)}
                     aria-label="Edit"
                     title="Edit"
@@ -352,7 +429,7 @@ function QuoteFormModal({
   );
   const [notes, setNotes] = useState(initial?.notes ?? "");
   const [items, setItems] = useState<QuoteItem[]>(
-    initial?.items?.length ? initial.items : [emptyItem()]
+    initial?.items?.length ? initial.items.map((it) => ({ ...it, details: it.details ?? "" })) : [emptyItem()]
   );
   const [taxPct, setTaxPct] = useState<number>(() => {
     if (!initial || initial.subtotal === 0) return 0;
@@ -460,23 +537,31 @@ function QuoteFormModal({
         <div className="fin-form-sec">
           <div className="fin-form-sec-tit">Line items</div>
           <div className="fin-items">
-            <div className="fin-item-hd">
-              <span>Description</span>
+            <div className="fin-item-hd quote-item-hd">
+              <span>Line item</span>
               <span>Qty</span>
-              <span>Rate (¢)</span>
+              <span>Rate</span>
               <span style={{ textAlign: "right" }}>Amount</span>
               <span />
             </div>
             {items.map((it, i) => (
-              <div className="fin-item-row" key={i}>
-                <input
-                  className="fi"
-                  value={it.description}
-                  onChange={(e) =>
-                    updateItem(i, { description: e.target.value })
-                  }
-                  placeholder="Service or product"
-                />
+              <div className="fin-item-row quote-item-row" key={i}>
+                <div className="fin-item-desc">
+                  <input
+                    className="fi"
+                    value={it.description}
+                    onChange={(e) =>
+                      updateItem(i, { description: e.target.value })
+                    }
+                    placeholder="Service or product"
+                  />
+                  <textarea
+                    className="ft fin-item-details"
+                    value={it.details ?? ""}
+                    onChange={(e) => updateItem(i, { details: e.target.value })}
+                    placeholder="Description"
+                  />
+                </div>
                 <input
                   className="fi"
                   type="number"
@@ -490,9 +575,10 @@ function QuoteFormModal({
                   className="fi"
                   type="number"
                   min={0}
-                  value={it.rate}
+                  step={0.01}
+                  value={it.rate / 100}
                   onChange={(e) =>
-                    updateItem(i, { rate: Number(e.target.value) || 0 })
+                    updateItem(i, { rate: Math.round(parseFloat(e.target.value || "0") * 100) })
                   }
                 />
                 <div className="fin-item-amt">{fmt(it.amount)}</div>

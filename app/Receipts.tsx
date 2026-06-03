@@ -6,6 +6,8 @@ import {
   deleteReceiptAction,
 } from "./actions";
 import type { Invoice } from "./Invoices";
+import { downloadReceiptPdf, previewReceipt } from "./receiptPdf";
+import type { CompanyInfo } from "./invoicePdf";
 
 export type Receipt = {
   id: number;
@@ -37,9 +39,11 @@ function fmt(cents: number) {
 export default function Receipts({
   initialReceipts,
   invoices,
+  company,
 }: {
   initialReceipts: Receipt[];
   invoices: Invoice[];
+  company: CompanyInfo;
 }) {
   const [receipts, setReceipts] = useState<Receipt[]>(initialReceipts);
   const [showForm, setShowForm] = useState(false);
@@ -272,6 +276,30 @@ export default function Receipts({
                   <span className="fin-card-meta">{r.createdAt}</span>
                   <div className="fin-card-acts">
                     <button
+                      className="fin-icon-btn"
+                      onClick={() => previewReceipt(r, inv, company)}
+                      aria-label="Preview receipt"
+                      title="Preview receipt"
+                    >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                    </button>
+                    <button
+                      className="fin-icon-btn"
+                      onClick={() => downloadReceiptPdf(r, inv, company)}
+                      aria-label="Download PDF"
+                      title="Download PDF"
+                    >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <polyline points="14 2 14 8 20 8" />
+                        <line x1="12" y1="18" x2="12" y2="12" />
+                        <polyline points="9 15 12 18 15 15" />
+                      </svg>
+                    </button>
+                    <button
                       className="fin-icon-btn danger"
                       onClick={() => onDelete(r.id)}
                       aria-label="Delete"
@@ -384,13 +412,14 @@ function ReceiptFormModal({
 
         <div className="frow">
           <div className="fg" style={{ marginBottom: 0 }}>
-            <label className="fl">Amount (cents)</label>
+            <label className="fl">Amount</label>
             <input
               className="fi"
               type="number"
               min={0}
-              value={amount}
-              onChange={(e) => setAmount(Number(e.target.value) || 0)}
+              step={0.01}
+              value={amount / 100}
+              onChange={(e) => setAmount(Math.round(parseFloat(e.target.value || "0") * 100))}
             />
             {selected && (
               <div style={{ fontSize: 11, color: "var(--muted2)", marginTop: 4, display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -471,7 +500,7 @@ function ReceiptFormModal({
             disabled={pending}
           >
             {pending && <span className="fin-spinner" aria-hidden="true" />}
-            {pending ? "Recording…" : "Record receipt"}
+            {pending ? "Recording…" : `Record ${fmt(amount)}`}
           </button>
         </div>
       </div>

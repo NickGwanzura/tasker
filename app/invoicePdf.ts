@@ -53,9 +53,12 @@ export function buildInvoiceHtml(inv: Invoice, company: CompanyInfo): string {
       const discountBadge = it.discount && it.discount > 0
         ? `<span style="font-size:9px;color:#888;margin-left:4px">${it.discount}% off</span>`
         : "";
+      const details = it.details?.trim()
+        ? `<div class="item-details">${nl2br(it.details)}</div>`
+        : "";
       return `
         <tr>
-          <td>${escape(it.description)}${discountBadge}</td>
+          <td><div class="item-title">${escape(it.description)}${discountBadge}</div>${details}</td>
           <td class="num">${it.quantity}</td>
           <td class="num">${fmtMoney(it.rate)}</td>
           <td class="num">${fmtMoney(it.amount)}</td>
@@ -224,6 +227,8 @@ export function buildInvoiceHtml(inv: Invoice, company: CompanyInfo): string {
   }
   table.items tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
   table.items tbody tr:last-child td { border-bottom: none; }
+  .item-title { font-weight: 650; color: #111; }
+  .item-details { margin-top: 3px; color: #666; font-size: 10.8px; line-height: 1.45; white-space: pre-wrap; }
 
   /* ── Totals ── */
   .totals-wrap {
@@ -394,20 +399,26 @@ export function buildInvoiceHtml(inv: Invoice, company: CompanyInfo): string {
       ${company.companyEmail ? ` &bull; ${escape(company.companyEmail)}` : ""}
     </div>
   </div>
-  <script>
-    window.addEventListener('load', function() {
-      setTimeout(function(){ try { window.print(); } catch (e) {} }, 350);
-    });
-  </script>
 </body>
 </html>`;
 }
 
-export function downloadInvoicePdf(inv: Invoice, company: CompanyInfo) {
+function openInvoiceWindow(inv: Invoice, company: CompanyInfo, autoPrint: boolean) {
   const html = buildInvoiceHtml(inv, company);
+  const finalHtml = autoPrint
+    ? html.replace(
+        "</body>",
+        `  <script>
+    window.addEventListener('load', function() {
+      setTimeout(function(){ try { window.print(); } catch (e) {} }, 350);
+    });
+  </script>
+</body>`
+      )
+    : html;
   const win = window.open("", "_blank", "width=900,height=1200");
   if (!win) {
-    const blob = new Blob([html], { type: "text/html" });
+    const blob = new Blob([finalHtml], { type: "text/html" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -422,8 +433,16 @@ export function downloadInvoicePdf(inv: Invoice, company: CompanyInfo) {
     );
     return;
   }
-  const blob = new Blob([html], { type: "text/html" });
+  const blob = new Blob([finalHtml], { type: "text/html" });
   const url = URL.createObjectURL(blob);
   win.location.href = url;
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+export function previewInvoice(inv: Invoice, company: CompanyInfo) {
+  openInvoiceWindow(inv, company, false);
+}
+
+export function downloadInvoicePdf(inv: Invoice, company: CompanyInfo) {
+  openInvoiceWindow(inv, company, true);
 }
