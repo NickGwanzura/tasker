@@ -134,10 +134,10 @@ export default function Invoices({
         return false;
       if (!q) return true;
       return (
-        inv.clientName.toLowerCase().includes(q) ||
-        inv.clientEmail.toLowerCase().includes(q) ||
-        inv.invoiceNumber.toLowerCase().includes(q) ||
-        inv.notes.toLowerCase().includes(q)
+        (inv.clientName || "").toLowerCase().includes(q) ||
+        (inv.clientEmail || "").toLowerCase().includes(q) ||
+        (inv.invoiceNumber || "").toLowerCase().includes(q) ||
+        (inv.notes || "").toLowerCase().includes(q)
       );
     });
   }, [invoices, query, statusFilter]);
@@ -425,7 +425,7 @@ export default function Invoices({
                       {inv.invoiceNumber || `#${inv.id > 0 ? inv.id : "—"}`}
                     </div>
                     <div className="fin-card-client">{inv.clientName}</div>
-                    <div className="fin-card-email">{inv.clientEmail}</div>
+                    {inv.clientEmail && <div className="fin-card-email">{inv.clientEmail}</div>}
                   </div>
                   <span className={"fin-pill " + displayStatus}>
                     {displayStatus}
@@ -778,8 +778,8 @@ function InvoiceFormModal({
 
   const submit = async () => {
     if (pending) return;
-    if (!clientName.trim() || !clientEmail.trim() || !dueDate) {
-      setError("Fill in client name, email and due date.");
+    if (!clientName.trim() || !dueDate) {
+      setError("Fill in client name and due date.");
       return;
     }
     const cleanItems = items.filter((it) => it.description.trim() !== "");
@@ -843,7 +843,6 @@ function InvoiceFormModal({
                 value={clientEmail}
                 onChange={(e) => setClientEmail(e.target.value)}
                 placeholder="billing@acme.com"
-                required
               />
             </div>
           </div>

@@ -388,7 +388,7 @@ export async function createInvoiceAction(input: {
 }) {
   try {
     const clientName = assertString(input.clientName, "clientName", { min: 1, max: 200 });
-    const clientEmail = assertString(input.clientEmail, "clientEmail", { min: 1, max: 200 });
+    const clientEmail = assertString(input.clientEmail, "clientEmail", { max: 200 });
     const clientAddress = assertString(input.clientAddress, "clientAddress", { max: 1000 });
     const notes = assertString(input.notes, "notes", { max: 5000 });
     const items = assertItems(input.items);
